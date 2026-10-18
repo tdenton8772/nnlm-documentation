@@ -1,174 +1,73 @@
 # What NNLM Can Do
 
-NNLM is designed to produce **grounded, cited natural language responses** from deterministic memory.
-
-It excels in domains where *accuracy*, *traceability*, and *honesty* matter more than fluency or creativity.
-
-This document describes the **classes of problems NNLM is explicitly built to solve**.
+This document lists what NNLM does in the running system.
 
 ---
 
-## 1. Grounded Question Answering With Citations
+## 1. Cited Question Answering
 
-NNLM answers questions by retrieving evidence from NAM and generating responses that cite their sources.
-
-Every factual claim in a response is:
-
-* tied to a specific retrieved record
-* marked with a citation
-* verifiable against the evidence
-
-This enables:
-
-* auditable responses
-* trust in generated output
-* accountability for every claim
-
-NNLM is especially effective where:
-
-* "the AI said so" is not an acceptable justification
-* responses must withstand scrutiny
-* correctness matters more than speed
+NNLM answers a question with a short response that cites the records it used as `[N]`. Each citation maps to a record in the UI's selection panel, and a marker that names no record the generator was shown is not counted as a citation.
 
 ---
 
-## 2. Multi-Turn Conversation With Session Memory
+## 2. Decline When the Evidence Is Not There
 
-NNLM supports multi-turn conversations through session-based context.
+The system declines rather than guesses when:
 
-Across turns, the system:
+* the retrieval quality check judges the results insufficient,
+* no records come back,
+* the selector keeps nothing, or
+* the kept records do not contain the answer (the generator can decline in that case).
 
-* tracks discussed entities
-* resolves pronouns and coreferences
-* maintains topic continuity
-* produces progressively more focused queries
-
-This happens through structured session memory — not by re-processing the entire conversation history in a context window.
+The first three are pipeline gates; the generator is not run at all.
 
 ---
 
-## 3. Noise Rejection and Mismatch Detection
+## 3. Multi-Path Retrieval With Provenance
 
-Not every query has a good answer in the knowledge base.
-
-NNLM handles this honestly:
-
-* the record selection stage identifies when retrieved records do not actually address the query
-* the system produces a rejection response rather than hallucinating
-* rejection is a measurable, first-class output
-
-This means users receive honest signals about knowledge gaps.
-
-NNLM will not invent an answer to avoid silence.
+Each question is sent to NAM's query service, which fuses its semantic-address, vector-similarity and graph paths. NNLM can add its own graph walks from the question's entities. Every record carries the paths that reached it, shown in the UI as **NAM**, **VEC** and **GRAPH** badges, and the quality summary counts how many records a graph path supplied.
 
 ---
 
-## 4. Exploratory Querying
+## 4. Trained Evidence Selection
 
-NNLM supports queries that are broad or underspecified.
-
-When a query does not strongly target a specific answer:
-
-* NAM retrieves from broader regions of semantic space
-* selection still filters noise
-* the response reflects what is known without overcommitting to a single interpretation
-
-This makes NNLM suitable for:
-
-* investigating a topic
-* understanding what the knowledge base contains
-* asking "What do we know about X?"
-
-Exploration in NNLM is deterministic — the same broad query always produces the same response.
+A TabTransformer selector scores each retrieved record from its text and NAM's metadata, and only kept records reach the generator. Per-record scores and keep decisions are visible.
 
 ---
 
-## 5. Deterministic, Auditable Responses
+## 5. Multi-Turn Conversation
 
-Given the same query and the same NAM state:
-
-* the same records are retrieved
-* the same selection decisions are made
-* the same evidence base reaches the generation model
-
-The retrieval and selection stages are fully deterministic.
-
-This enables:
-
-* reproducibility
-* regression testing
-* forensic analysis of responses
-* compliance in regulated environments
-
-The generation stage has controlled variability in phrasing, but the factual content and citations remain stable.
+Turns are stored in NAM under a session id. Follow-up pronouns are resolved against stored turns before retrieval ("Where was he born?" after a question about a person); after a "Who killed X?" question, a follow-up pronoun refers to a name from the answer. Sessions survive reloads and can be reopened from the sidebar.
 
 ---
 
-## 6. Per-Stage Latency Measurement
+## 6. Live, Inspectable Pipeline
 
-Every stage of the NNLM pipeline produces measurable timing data:
+The UI shows each stage as it completes:
 
-* encoding time
-* NAM retrieval time
-* record selection time
-* generation time
+* **Plan** — resolved question, entities, scope, access patterns, graph hops; exportable as JSON or YAML
+* **Retrieve** — the returned records with provenance badges and match scores, and counts of query, graph and session results
+* **Select** — selector score per record, kept or not, guard fired if any
+* **Generate** — the answer, with cited records highlighted
 
-This enables:
-
-* identifying bottlenecks
-* optimizing specific stages
-* setting realistic latency expectations
-* tracking performance over time
-
-Observability is not an afterthought — it is a design consequence of the multi-stage architecture.
+Per-stage timings (NAM encoder, planner, NAM query, quality check, selector, generator, end to end) are shown for every answer. A stage that was skipped by a gate is shown as skipped.
 
 ---
 
-## 7. Query Plan Inspection
+## 7. Runs Without a GPU
 
-The encoder's output — the query plan — is fully inspectable.
-
-Users and operators can see:
-
-* what entities were identified
-* how the query was interpreted
-* what retrieval strategy was chosen
-* how pronouns and coreferences were resolved
-
-This transparency enables:
-
-* debugging unexpected responses
-* understanding why specific records were retrieved
-* improving the encoder based on observed query plans
+Every model runs on CPU by default. An operator can prewarm a GPU from the UI to speed up the decoder's sentence encoder and generator. A prewarmed GPU is held while in use and released on request or after a period of inactivity. Whenever no GPU is serving, and on any GPU failure, calls run on CPU. The UI shows the GPU's state, and one-shot responses report where the decode ran.
 
 ---
 
-## 8. Knowledge Gap Identification
+## 8. Programmatic Access
 
-When NNLM rejects a query, the rejection is informative.
-
-It indicates:
-
-* the system searched NAM but found insufficient evidence
-* specific retrieval regions were explored without adequate results
-* the knowledge base has a gap in this area
-
-This turns rejected queries into **actionable signals** for knowledge base improvement.
+The encoder's `/ask` endpoint runs the full pipeline in one call and returns the answer, citations, cited record ids, invalid citations, selection detail, retrieval context, where the decode ran, and errors. Access can be protected with a shared-secret header.
 
 ---
 
 ## Summary
 
-NNLM is well suited for problems that require:
-
-* **grounded responses** with citations
-* **honest behavior** including rejection
-* **deterministic, reproducible** query processing
-* **multi-turn conversation** with session context
-* **observable, debuggable** pipeline behavior
-* **auditable** response chains from query to evidence to claim
-
-It is not a general-purpose conversational AI.
-It is a **structurally grounded language interface** to deterministic memory.
+NNLM retrieves from NAM through several paths, selects evidence with a trained model, writes a short cited answer with a small generator, declines when it should, carries a conversation across turns, and shows every step.
 
 -> See also: [What NNLM Cannot Do](WHAT_NNLM_CANNOT_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Grounding Model](../ARCHITECTURE/GROUNDING_MODEL.md)

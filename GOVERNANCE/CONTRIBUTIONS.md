@@ -16,9 +16,10 @@ The system is built around non-negotiable invariants:
 
 * grounding over fluency
 * citation over assertion
-* rejection over hallucination
+* declining over guessing
 * structure over prompting
-* determinism over creativity
+* inspectable stages
+* measurement over assumption
 
 Any contribution that weakens these principles is not a contribution — even if it adds features.
 
@@ -49,17 +50,17 @@ Contributions are **intentional and conversational**, not transactional.
 
 ### Conditionally Accepted
 
-* encoder stage improvements (must preserve query plan contracts)
-* selection model improvements (must preserve threshold semantics)
-* generation improvements (must preserve citation behavior)
-* training data contributions (under quality and scope guidance)
+* planning and retrieval improvements (must preserve the plan and retrieve stage contracts)
+* selector improvements (must keep the keep-mask contract and the grounding guards)
+* generator improvements (must keep checked `[N]` citations and declining; a new model ships only if it beats the deployed one on the graded question set)
+* training data contributions (must carry provenance and licensing terms)
 
 ### Explicitly Out of Scope
 
-* changes that remove or weaken citation requirements
+* changes that remove or weaken citation checking
 * runtime learning or adaptive behavior
-* ungrounded generation capabilities
-* changes that break determinism in retrieval or selection
+* generation without selected evidence, or bypassing the generation gates
+* treating stored past answers as evidence
 * features that bypass record selection
 
 ---
@@ -122,7 +123,7 @@ If IP terms matter for your contribution, discuss them *before* contributing.
 
 ## Why This Structure Exists
 
-NNLM is designed to solve a specific problem — grounded, cited language generation from deterministic memory.
+NNLM is designed to solve a specific problem — grounded, cited answers from records in NAM.
 
 That requires:
 

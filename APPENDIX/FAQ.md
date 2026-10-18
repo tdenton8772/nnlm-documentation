@@ -1,202 +1,104 @@
-# Frequently Asked Questions (FAQ)
+# Frequently Asked Questions
 
-This FAQ answers the questions we hear most often from engineers, architects, and evaluators encountering NNLM for the first time.
-
-If you are looking for marketing claims, this is not the right place.
-If you are looking to understand what NNLM *actually does*, this is.
+Short answers to the questions engineers and evaluators ask most often.
 
 ---
 
 ## Is this a chatbot?
 
-No.
-
-NNLM does not engage in general conversation, express opinions, role-play, or generate creative content.
-
-It answers questions by:
-
-* retrieving evidence from NAM
-* filtering that evidence for relevance
-* generating a cited response from the filtered evidence
-
-If the evidence is insufficient, it declines to answer.
-
-That is the full scope.
+No. NNLM answers questions from records in NAM, with citations, and declines when the records do not contain the answer. It handles follow-up questions in a conversation, but not small talk, opinions or creative requests.
 
 ---
 
 ## Is this RAG?
 
-No.
-
-RAG retrieves documents by similarity, inserts them into a prompt, and hopes the model uses them correctly.
-
-NNLM:
-
-* retrieves by deterministic addressing via NAM
-* filters noise records before generation
-* conditions generation on learned representations, not just text
-* requires citations as structural output
-* supports rejection when evidence is insufficient
-
-NNLM and RAG solve the same problem at different levels of architectural rigor.
+It retrieves before it generates, so broadly yes. It differs from the common pattern in that a trained selector decides which retrieved records the generator may see, generation does not run without evidence, the generator is a small encoder-decoder model, and citations are checked against what the generator was shown.
 
 -> See: [Why Not RAG](../PHILOSOPHY/WHY_NOT_RAG.md)
 
 ---
 
+## Does it use vector search?
+
+Yes, as one of three paths. NAM's query service fuses semantic-address matching, vector similarity and a graph index, and tags each record with the paths that reached it. The UI shows these as NAM, VEC and GRAPH badges.
+
+---
+
+## Which models does it use?
+
+* NAM's encoder, for entities and semantic signals: NAM's rule-based parser followed by its encoder heads
+* two small T5 planner models (one plans retrieval, one judges whether results are sufficient)
+* a sentence encoder and a TabTransformer for record selection
+* a fine-tuned T5 encoder-decoder for generation
+
+No hosted large language model is used in the primary path.
+
+---
+
+## Why an encoder-decoder instead of a big chat model?
+
+Its answers are conditioned on the selected records rather than on parametric memory; it is small enough to run on CPU; records are numbered in its input so citations are structural and checkable; and it can say when the evidence is insufficient.
+
+---
+
 ## Does it hallucinate?
 
-By design, NNLM cannot assert ungrounded claims.
-
-Every factual assertion must cite a retrieved record that was scored as relevant by the selection stage. If no records pass selection, the system rejects the query rather than generating.
-
-This does not mean responses are always correct — if NAM contains incorrect records, NNLM will cite them faithfully. But every claim is traceable to its source, making errors identifiable and fixable.
-
----
-
-## Does it need an LLM?
-
-Yes — but the LLM is structurally constrained.
-
-The generation stage uses a language model. However:
-
-* it does not generate from training weights
-* it is conditioned on pre-filtered evidence
-* it must produce citations for every factual claim
-* it cannot access knowledge outside the selected records
-
-The language model provides fluency.
-The pipeline provides grounding.
-
----
-
-## Is it deterministic?
-
-The retrieval and selection stages are fully deterministic. Given the same query and the same NAM state, the same records are retrieved and the same selection decisions are made.
-
-The generation stage has controlled variability — it may produce slightly different phrasings, but the factual content and citations remain stable.
+It is built to make that hard: irrelevant and past-answer records are removed before generation, generation is gated on evidence, and markers naming unseen records are not counted as citations. It is still a trained model and can misstate what a cited record says. Every candidate model is measured for unsupported claims and answers drawn from parametric memory before it ships.
 
 ---
 
 ## Can it say "I don't know"?
 
-Yes. And it does.
-
-When record selection determines that no retrieved records sufficiently address the query, the system produces a rejection response.
-
-This is a first-class output, not a fallback. Rejection is measurable, inspectable, and structurally determined — not a generated phrase.
+Yes. Structurally, when retrieval is insufficient or selection keeps nothing (the generator is not run). And from the generator, which can decline when the records it is shown do not contain the answer.
 
 ---
 
-## How does it differ from ChatGPT + search?
+## Why did it decline?
 
-ChatGPT with search:
-
-* uses web search to find information
-* inserts results into the conversation context
-* generates freely, with or without using the search results
-* may blend search results with training data
-* has no structural citation enforcement
-
-NNLM:
-
-* uses NAM for deterministic, address-based retrieval
-* filters noise records before generation sees them
-* constrains generation to selected evidence only
-* requires citations as structural output
-* rejects queries when evidence is insufficient
-
-The difference is not search quality. It is architectural accountability.
+The panels show why. The retrieval panel shows what NAM returned, so you can see whether a record containing the answer was there; the selection panel shows whether it was kept. A record that was never retrieved cannot be used, however good the selector and generator are.
 
 ---
 
-## Can it work with custom data?
+## Is it deterministic?
 
-Yes.
-
-NNLM operates on whatever data has been ingested into NAM. The system is designed to work with domain-specific knowledge bases.
-
-Adapting NNLM to a new domain involves:
-
-* ingesting domain data into NAM
-* training the record selection model on domain-relevant examples
-* training the generation model on domain-specific citation patterns
-
-The pipeline architecture remains the same across domains.
+Selection and generation are: the selector applies a fixed rule to its scores, and generation uses greedy decoding. CPU and GPU runs use different numeric precision, so scores and wording can differ slightly between them. Retrieval reflects NAM's current state, which changes as data — including new session turns — is ingested.
 
 ---
 
-## What if NAM is wrong?
+## Does it need a GPU?
 
-If NAM contains incorrect records, NNLM will cite them faithfully.
-
-NNLM does not verify the truth of records — it verifies that its claims are grounded in retrieved evidence.
-
-The difference matters:
-
-* **grounding** means every claim traces to a source
-* **correctness** means the source is accurate
-
-NNLM guarantees grounding. Correctness is a property of the data in NAM.
-
-If NAM is wrong, NNLM will be wrong — but traceably wrong. The citation tells you exactly which record is the source, making the error identifiable and correctable.
+No. Everything runs on CPU. A GPU can be prewarmed from the UI to speed up the decoder's sentence encoder and generator. It is held through the registry while in use and released on request or after a period of inactivity, and any GPU failure falls back to CPU for that call.
 
 ---
 
-## How fast is it?
+## How does it handle follow-up questions?
 
-Current end-to-end latency is approximately 5-6 seconds on CPU infrastructure.
-
-The generation stage is the primary contributor. GPU inference is expected to reduce this to sub-1 second.
-
--> See: [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
-
----
-
-## Can it handle multi-turn conversations?
-
-Yes.
-
-NNLM supports session-based memory that tracks:
-
-* entities discussed in previous turns
-* pronoun and coreference resolution
-* topic continuity
-
-This is achieved through structured session state, not by stuffing previous turns into a context window.
+Each turn is stored in NAM under the session id. Before retrieval, a pronoun in the new question is replaced with the previous question's subject, or with a name from the answer after a "Who killed X?"-style question.
 
 -> See: [Session and Context](../ARCHITECTURE/SESSION_AND_CONTEXT.md)
 
 ---
 
-## Is it production-ready?
+## Can it work with custom data?
 
-NNLM is deployed and producing grounded responses from NAM.
-
-It is suitable for:
-
-* controlled evaluations
-* domain-specific pilots
-* environments where grounding and citation are requirements
-
-It is not yet a fully managed platform. Latency, corpus size, and operational tooling are still maturing.
-
--> See: [Current State](../ROADMAP/CURRENT_STATE.md)
+Yes. Data ingested into NAM is available to NNLM without retraining, because knowledge lives in NAM rather than in model weights. Adapting the selector and generator to a very different domain is separate, offline work; see [Long-Term Direction](../ROADMAP/LONG_TERM.md).
 
 ---
 
-## Where should I start next?
+## What if NAM is wrong?
 
-If you want:
+NNLM will repeat the wrong record, with a citation that lets you find it. Grounding means traceable, not true.
 
-* conceptual clarity -> [Multi-Stage Design](../ARCHITECTURE/MULTI_STAGE_DESIGN.md)
-* architectural detail -> [Pipeline Model](../ARCHITECTURE/PIPELINE_MODEL.md)
-* practical constraints -> [What NNLM Can Do](../CAPABILITIES/WHAT_NNLM_CAN_DO.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
-* current status -> [Current State](../ROADMAP/CURRENT_STATE.md)
-* future direction -> [Near-Term](../ROADMAP/NEAR_TERM.md) | [Long-Term](../ROADMAP/LONG_TERM.md)
-* definitions -> [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Glossary](GLOSSARY.md)
+---
 
-This documentation is designed to be read non-linearly.
+## Can other systems call it?
 
--> See also: [Where NNLM Fits](../OVERVIEW/WHERE_NNLM_FITS.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Current State](../ROADMAP/CURRENT_STATE.md)
+Yes. The encoder's `/ask` endpoint runs the whole pipeline and returns the answer, citations, selection detail, retrieval context and where the decode ran. It can be protected with a shared-secret header.
+
+---
+
+## Is it production-ready?
+
+It runs end to end on Kubernetes alongside NAM, with health checks, a CPU fallback for every GPU call, and per-stage visibility. Retrieval for natural-language questions, generator quality and integration with external monitoring are the main areas of active work; see [Near-Term Roadmap](../ROADMAP/NEAR_TERM.md).
+
+-> See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)

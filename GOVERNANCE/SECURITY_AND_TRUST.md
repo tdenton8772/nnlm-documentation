@@ -1,191 +1,75 @@
 # Security and Trust
 
-NNLM is designed to be **trustworthy by construction**, not by policy alone.
-
-This document explains how NNLM approaches security, auditability, and operational trust — and why those properties are inseparable from its architectural choices.
+This document covers how NNLM supports operator trust: what it exposes for audit, how it handles credentials and access, and where its guarantees stop.
 
 ---
 
-## Trust as a System Property
+## Trust Comes From Inspectability
 
-In NNLM, trust is not layered on afterward.
+For every answer, NNLM can show:
 
-It emerges from:
+* the question as received and as resolved (after pronoun resolution)
+* the query plan
+* every retrieved record, with the NAM paths that reached it
+* every selector score and keep decision, and any guard that fired
+* which records were cited
+* how long each stage took
 
-* grounding to retrieved evidence
-* deterministic retrieval and selection
-* citation as structural output
-* rejection over hallucination
-* per-stage observability
+One-shot API responses also list markers that named no shown record (`invalid_citations`) and say whether the decode ran on CPU or GPU.
 
-The system is designed so that operators can reason about *what the system said*, *why it said it*, and *what evidence supports it*.
-
----
-
-## No Training Data in Responses
-
-NNLM does not generate from its training weights.
-
-Every factual claim in a response is grounded to a record retrieved from NAM.
-
-This means:
-
-* responses do not contain memorized training data
-* sensitive information from training corpora does not leak into outputs
-* the knowledge boundary is defined by NAM's contents, not the model's weights
-
-This is a structural guarantee, not a prompting convention.
+An operator can therefore trace a claim to a record, the record to the retrieval path that found it, and the path to the plan that requested it.
 
 ---
 
-## Deterministic Behavior Enables Auditing
+## Knowledge Boundary
 
-The retrieval and selection stages of NNLM are deterministic.
+Facts are meant to come from records in NAM, not from model weights:
 
-Given the same query and the same NAM state:
+* the generator only sees records selection kept;
+* it does not run when there is no evidence;
+* markers naming anything it was not shown are not counted as citations;
+* stored past answers are never treated as evidence.
 
-* the same records are retrieved
-* the same selection decisions are made
-* the same evidence base reaches the generation model
-
-This enables:
-
-* reproducibility of responses
-* forensic analysis of past outputs
-* regression testing across system updates
-* compliance verification in regulated environments
-
-If a response cannot be reproduced, something has changed — and the change can be identified by comparing stage outputs.
+This narrows what a trained model can contribute from its own weights. It does not eliminate it: a generator can still produce a phrase not supported by its input. Answers drawn from parametric memory are measured on every candidate model, and a model that produces them does not ship.
 
 ---
 
-## Credentials and Secrets Management
+## Session Isolation
 
-NNLM separates credentials from application code and configuration.
+Conversation turns are stored in NAM and can be returned by retrieval. Turns from other sessions are filtered out of the evidence for the current session, and when the current session cannot be established, every session record is treated as foreign. NNLM's own bookkeeping documents (such as the session index) are always excluded.
 
-* API keys, authentication tokens, and service credentials are managed via secrets infrastructure
-* Credentials are never embedded in configuration files, container images, or source code
-* Deployment configurations reference external secrets rather than storing them inline
-
-This supports integration with external secret management systems and follows standard security practices.
+The session index is a single shared document listing sessions for the UI sidebar. Deployments that serve multiple users should account for that: session listing is not per-user.
 
 ---
 
-## Network Isolation in Deployment
+## Access Control
 
-NNLM's deployment architecture supports network-level isolation.
-
-Internal components — the encoder, NAM, the selection model, the generation model — communicate within an isolated network.
-
-External access is:
-
-* mediated through defined entry points
-* authenticated where appropriate
-* logged for audit purposes
-
-Internal services are not exposed to external networks.
+* **NNLM to NAM.** The encoder authenticates to NAM's query service with a JWT obtained from NAM's login endpoint; session turns are written through NAM's authenticating KV path with that token. The Helm chart refuses to render with a missing or placeholder NAM credential, and prefers it from a Kubernetes secret.
+* **Callers to NNLM.** The encoder supports an opt-in shared secret: when set, every route except `/health` requires a matching `X-NNLM-Token` header. `/ask` is the intended external entry point; the decoder need not be exposed outside the cluster.
+* **The UI.** The web UI has no login of its own and calls the encoder with the shared secret, so it is meant to be exposed only to trusted users or behind an access layer of the deployment's choosing.
+* **GPU provisioning.** NNLM holds only a narrow token for the GPU registry. Cloud provider credentials stay with the registry and never reach NNLM. GPUs are provisioned only on an explicit prewarm and released on request or after inactivity.
 
 ---
 
-## Pipeline Isolation
+## Credentials
 
-Each stage of the NNLM pipeline has explicit boundaries.
-
-* the encoder does not access the generation model
-* the selection model does not access NAM directly
-* the generation model does not access NAM directly
-* each stage operates on the output of the previous stage, nothing more
-
-This isolation:
-
-* limits blast radius when a stage misbehaves
-* prevents unauthorized data flow between stages
-* makes the system's behavior analyzable at each boundary
+Credentials are supplied through Kubernetes secrets or deploy-time values, not baked into images. GPU registry tokens are created out of band and not templated by the chart, so an upgrade cannot rotate them unexpectedly.
 
 ---
 
-## Citation as an Audit Trail
+## Failure Is Visible
 
-Every response includes citation markers linking claims to specific retrieved records.
-
-This creates a natural audit trail:
-
-* any claim can be traced to its evidence
-* any evidence can be traced to its NAM address
-* any NAM address can be traced to its retrieval path
-* the query plan that initiated retrieval is preserved
-
-This traceability exists at the architectural level. It does not require additional tooling or post-hoc analysis.
+* A rejected session write returns `ok: false` from the encoder and is logged, never reported as stored.
+* Markers that name no shown record are logged by the decoder and counted in one-shot responses.
+* On one-shot requests, a GPU fallback to CPU shows in the response's execution field.
+* The UI shows each service's health and the GPU's state; a stage skipped by a gate is shown as skipped, not failed.
 
 ---
 
-## Rejection as a Safety Mechanism
+## Where Guarantees Stop
 
-When NNLM cannot ground a response in sufficient evidence, it rejects the query.
-
-This is a safety mechanism:
-
-* it prevents hallucinated responses from reaching users
-* it signals knowledge gaps explicitly
-* it prefers honesty over helpfulness
-
-In safety-critical environments, a system that says "I don't know" is more trustworthy than a system that always has an answer.
-
----
-
-## What NNLM Does Not Rely On
-
-NNLM does not rely on:
-
-* prompt hardening to prevent hallucination
-* output filters to catch wrong answers
-* model alignment techniques to ensure honesty
-* post-processing to add citations
-
-Instead, it relies on:
-
-* pipeline architecture that makes hallucination structurally difficult
-* record selection that removes noise before generation
-* citation markers as structural output of the generation model
-* rejection as a first-class response
-
-Security emerges from structure, not from rules.
-
----
-
-## Failure Modes Are Visible
-
-NNLM is designed so that failure is observable.
-
-When the system produces a wrong answer:
-
-* citation markers identify which record was cited
-* selection scores show why that record was kept
-* retrieval metadata shows why that record was returned
-* the query plan shows how the query was interpreted
-
-When the system rejects a query:
-
-* selection scores show that no records passed the threshold
-* retrieval metadata shows what was found (and why it was insufficient)
-
-Failures are diagnosable because the pipeline is transparent.
-
----
-
-## Summary
-
-NNLM is designed to be trusted because it is:
-
-* grounded to retrieved evidence
-* deterministic in retrieval and selection
-* transparent via citations and per-stage observability
-* honest via rejection when evidence is insufficient
-* isolated at the network and pipeline level
-* auditable from query to claim to evidence to address
-
-These properties are intentional, not incidental.
-
-Trust in NNLM comes from understanding how it works — and knowing that every claim it makes can be traced to its source.
+* NNLM does not verify that NAM's records are true.
+* NNLM does not guarantee every generated sentence is supported by its citation.
+* Retrieval reflects NAM's current state, which changes as data (including session turns) is ingested, so the same question can retrieve different records over time.
 
 -> See also: [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Grounding Model](../ARCHITECTURE/GROUNDING_MODEL.md) | [Contributions](CONTRIBUTIONS.md)

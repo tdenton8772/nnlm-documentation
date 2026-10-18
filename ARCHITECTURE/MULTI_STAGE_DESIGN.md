@@ -1,191 +1,72 @@
 # Multi-Stage Design
 
-NNLM is not a single model.
-It is a **pipeline of independent stages**, each with its own purpose, its own model, and its own failure modes.
-
-This is a deliberate architectural choice.
+NNLM is not one model. It is a sequence of stages, each with its own job, its own model (or none), and its own output that can be inspected.
 
 ---
 
-## Why Multi-Stage
+## Why Stages
 
-Most AI systems that generate language are monolithic:
+A single model that takes a question and returns an answer hides every decision it made. When the answer is wrong, the only diagnosis available is "the model".
 
-* one model takes input and produces output
-* reasoning is internal and opaque
-* failures are invisible until the output is wrong
-* improvement requires retraining the entire system
+NNLM separates the decisions so each can be seen, measured and improved on its own:
 
-NNLM rejects this approach.
-
-Instead, the pipeline is decomposed into stages that can be:
-
-* independently trained
-* independently evaluated
-* independently debugged
-* independently improved
-
-This costs more engineering effort.
-It produces a more trustworthy system.
-
----
-
-## The Four Stages
-
-### 1. Encoding
-
-The encoding stage transforms a natural language query into a structured query plan.
-
-It answers:
-
-* What entities are mentioned?
-* What is the user asking about?
-* How should NAM be queried?
-* What retrieval strategy should be used?
-
-The encoder does not retrieve information. It produces **instructions** for retrieval.
-
----
-
-### 2. Retrieval
-
-The retrieval stage executes the query plan against NAM.
-
-It returns:
-
-* records that occupy compatible regions of NAM's semantic space
-* rich metadata for each record (ontology, geometry, match scores)
-* a deterministic result set
-
-Retrieval is broad by design. It returns everything that *might* be relevant, not just what *is* relevant.
-
-The same query plan always produces the same retrieval results.
-
----
-
-### 3. Selection
-
-The selection stage separates signal from noise.
-
-It takes the full retrieval result set and determines:
-
-* which records are actually relevant to the query
-* which records are noise (structurally compatible but not useful)
-* how strongly each record supports an answer
-
-Selection is a learned model that operates on NAM's metadata — ontology types, match geometry, confidence scores, and record characteristics.
-
-This stage is what makes rejection possible. If no records pass the selection threshold, the system declines to answer.
-
----
-
-### 4. Generation
-
-The generation stage produces a natural language response from the selected records.
-
-It is conditioned on:
-
-* the selected records and their content
-* learned representations from the selection stage
-* the original query
-
-It is constrained to:
-
-* only make claims supported by selected records
-* cite every factual assertion
-* produce rejection responses when selection yields insufficient evidence
-
-The generation model does not have unconstrained access to its training knowledge. It operates within the boundary set by the selection output.
-
----
-
-## Why Each Stage Has Its Own Model
-
-A monolithic model hides decisions.
-A multi-stage pipeline makes them visible.
-
-| Property | Monolith | Multi-stage |
+| Decision | Stage | Model |
 |---|---|---|
-| Failure isolation | Impossible | Per-stage |
-| Debugging | Guesswork | Inspectable |
-| Improvement | Retrain everything | Improve one stage |
-| Measurement | End-to-end only | Per-stage metrics |
-| Trust | "The model said so" | "Here is why" |
-
-Each stage has:
-
-* a clear input contract
-* a clear output contract
-* measurable performance
-* independent training data
+| Who is the question about, given the conversation? | Plan | Rule-based pronoun resolution over stored turns; NAM's encoder heads for entities |
+| How should NAM be searched? | Plan | Trained T5 query planner (supervisor) |
+| What does NAM have? | Retrieve | NAM (address, vector and graph paths) plus optional graph walks |
+| Is that enough to try answering? | Retrieve | Trained T5 quality planner, with one broadening retry |
+| Which records are evidence? | Select | Sentence encoder + TabTransformer, plus fixed guards |
+| What do the records say? | Generate | Fine-tuned T5 encoder-decoder, plus a citation check |
 
 ---
 
-## How This Enables Measurement
+## Stage Contracts
 
-Because each stage has observable outputs, NNLM supports:
+Stages talk over HTTP with JSON. The plan stage's output is the retrieve stage's input, verbatim; the decoder payload is built from the retrieve stage's output; the select stage's mask is the generate stage's input. No stage keeps request state between calls.
 
-* **Encoding measurement** — was the query plan correct? Were entities resolved properly?
-* **Retrieval measurement** — did NAM return relevant records? How many? From which regions?
-* **Selection measurement** — were the right records kept? Were noise records filtered?
-* **Generation measurement** — did the output cite correctly? Did it hallucinate?
-* **Latency measurement** — how long did each stage take?
+| From | To | Carries |
+|---|---|---|
+| Plan | Retrieve | Plan (scope, access patterns, query texts, graph seeds, hops, geometry), entities, session turns |
+| Retrieve | Select | Records with text, NAM metadata and `retrieved_via`; quality verdict; the current session's scope |
+| Select | Generate | Positional keep mask, per-record detail, guard, or a terminal answer |
+| Generate | UI / caller | Answer, citations, cited record ids, selection detail (one-shot responses add invalid citations and execution location) |
 
-This is not observability as an afterthought.
-It is observability as a design consequence.
-
----
-
-## How This Enables Debugging
-
-When an NNLM response is wrong, the multi-stage design lets you ask:
-
-1. Was the query plan correct? (Check the encoder output)
-2. Did NAM return the right records? (Check the retrieval output)
-3. Were the right records selected? (Check the selection scores)
-4. Did the generator use them correctly? (Check the citations)
-
-In a monolithic system, the only question you can ask is "why was the output wrong?" — and the answer is always "the model."
+A terminal answer from selection (insufficient quality, no records, nothing kept) means generation does not run. The UI shows the generate stage as *skipped*, not failed.
 
 ---
 
-## How This Enables Improvement
+## What Stages Make Possible
 
-Each stage can be improved independently:
+**Visible progress.** The UI renders the plan while retrieval runs and the selection panel while generation runs.
 
-* Better entity resolution? Improve the encoder.
-* Missing records? Improve NAM's coverage or addressing.
-* Too much noise? Improve the selection model.
-* Awkward phrasing? Improve the generation model.
+**Targeted diagnosis.** For a wrong answer you can ask, in order:
 
-No single improvement requires retraining the entire system.
+1. Was the question resolved correctly? (resolved text, entities)
+2. Did NAM return a record containing the answer? (retrieved records, provenance)
+3. Did selection keep it? (per-record scores and keep flags)
+4. Did the generator use it? (citations, invalid citations)
+
+When the answer-bearing record was never retrieved, the failure is in retrieval, not in the language models, and the stage split is what makes it visible as one.
+
+**Independent improvement.** The selector can be retrained without touching the generator, the generator without touching retrieval, and the planner without touching either.
+
+**Independent placement.** The decoder's two most expensive models (sentence encoder and T5) can run on a prewarmed GPU while the planners and the rest stay on CPU; see [Generation Model](GENERATION_MODEL.md#where-it-runs).
 
 ---
 
-## The Cost of Multi-Stage
+## The Cost
 
-This design is not free.
+* more services to deploy and keep compatible
+* model contracts that must match between training and serving (for example, the selector must be served the same features, and the generator the same input layout, it was trained on)
+* more latency than one call to one model
 
-It requires:
-
-* more engineering to build and maintain
-* clear contracts between stages
-* coordination of training across stages
-* higher latency than a single model call
-
-These costs are real. They are accepted because the alternative — an opaque monolith — is worse for the problems NNLM is designed to solve.
+These costs are accepted because the alternative hides failure.
 
 ---
 
 ## Summary
 
-NNLM's multi-stage design exists because:
-
-* trust requires transparency
-* transparency requires measurability
-* measurability requires stage separation
-* stage separation requires explicit contracts
-
-The pipeline is the architecture. The architecture is the guarantee.
+Each stage makes one decision, exposes it, and hands a JSON contract to the next. That is what lets NNLM show its work and lets failures be traced to the stage that caused them.
 
 -> See also: [Pipeline Model](PIPELINE_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Grounding Model](GROUNDING_MODEL.md)

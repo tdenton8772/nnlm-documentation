@@ -1,175 +1,55 @@
 # What NNLM Cannot Do
 
-NNLM is deliberately constrained by design.
-Those constraints are what make it grounded, auditable, and trustworthy.
+These are things NNLM does not do by design. They are not maturity gaps; those are in [Current Limitations](CURRENT_LIMITATIONS.md).
 
-This document describes **systemic non-capabilities** — not temporary limitations, missing features, or future roadmap items.
-
-If a problem fundamentally requires any of the following, **NNLM is not the right tool**.
+If a use case fundamentally needs one of these, NNLM is the wrong tool.
 
 ---
 
-## 1. Creative or Open-Ended Generation
+## 1. Answer From General Knowledge
 
-NNLM does not:
-
-* write fiction
-* compose poetry
-* brainstorm ideas
-* generate content without evidence
-
-There is no concept of:
-
-* "imagine something"
-* "what if"
-* "write me a story about"
-
-NNLM generates from evidence, not from imagination.
-
-If a use case requires unconstrained creativity, NNLM will feel rigid — because it is.
+NNLM's knowledge is whatever is in its NAM instance. It does not search the web and does not treat its models' training data as a knowledge source. A question about something NAM does not hold should be declined.
 
 ---
 
-## 2. Knowledge Beyond NAM
+## 2. Creative or Open-Ended Writing
 
-NNLM does not have access to:
-
-* the internet
-* real-time data feeds
-* knowledge not ingested into NAM
-* its own training data as a knowledge source
-
-If a fact is not in NAM, NNLM cannot produce it.
-
-This is a feature. It means the system only says what it can prove.
-
-But it also means:
-
-* NNLM's knowledge is bounded by what has been ingested
-* questions about topics not in NAM will produce rejections
-* the system is only as complete as its NAM instance
+No fiction, brainstorming, or "imagine if". The generator is trained to write short answers from supplied records.
 
 ---
 
-## 3. Real-Time Learning
+## 3. Long-Form Output
 
-NNLM does not learn from user interactions.
-
-At query time:
-
-* no models are updated
-* no weights are adjusted
-* no feedback is incorporated
-* no behavior changes
-
-All training happens offline. Models are frozen at deployment.
-
-If a use case requires:
-
-* adaptive behavior
-* learning from corrections
-* self-improvement during operation
-
-NNLM is not designed for that role.
+Answers are short, a few sentences, by design and by model size. NNLM is not a report writer or a summariser of arbitrary documents.
 
 ---
 
 ## 4. General Conversation
 
-NNLM is not a chatbot.
-
-It does not:
-
-* engage in small talk
-* express opinions
-* role-play
-* provide emotional support
-* handle requests outside its knowledge domain
-
-NNLM answers questions from evidence. That is its scope.
-
-Attempting to use it as a general conversational agent will produce unsatisfying results — intentionally.
+NNLM does not do small talk, opinions or role-play. Its conversational ability is limited to follow-up questions about the same subjects.
 
 ---
 
-## 5. Summarization Without Evidence
+## 5. Learn During Use
 
-NNLM does not:
-
-* summarize documents it has not retrieved
-* condense information from its training data
-* produce executive summaries from thin air
-
-If asked to summarize, NNLM can only summarize what it has retrieved and selected — with citations.
-
-Open-ended summarization of arbitrary text is not a capability.
+No model changes at query time. Conversation turns are stored in NAM, but that is memory of what was asked, not learning, and stored answers are never used as evidence for later answers.
 
 ---
 
-## 6. Multi-Language Support
+## 6. Act on External Systems
 
-NNLM currently operates in English only.
-
-It does not:
-
-* translate between languages
-* process queries in other languages
-* generate responses in languages other than English
-
-Multi-language support is a potential future direction, not a current capability.
+NNLM produces text. It does not call tools, run workflows or take actions.
 
 ---
 
-## 7. Sub-Second Response Times
+## 7. Guarantee Correctness
 
-NNLM's multi-stage pipeline introduces latency at each stage.
-
-On current infrastructure:
-
-* end-to-end responses take several seconds
-* the generation stage is the primary latency contributor
-* CPU-based inference is slower than GPU-based inference
-
-If a use case requires:
-
-* real-time responses
-* sub-second latency
-* high-throughput streaming
-
-Current NNLM infrastructure may not meet those requirements.
-
----
-
-## 8. Autonomous Action
-
-NNLM does not:
-
-* execute tasks
-* trigger workflows
-* make decisions
-* take actions in external systems
-
-It produces language — specifically, cited responses from evidence.
-
-NNLM can inform decisions. It does not make them.
+NNLM can show where a claim came from. It cannot make a wrong source right, and as a trained generator it can still occasionally misstate what a cited record says. Its guarantee is traceability, not truth.
 
 ---
 
 ## Summary
 
-NNLM does **not** try to be:
-
-* a general-purpose conversational AI
-* a creative writing tool
-* an autonomous agent
-* a real-time system
-* a multilingual platform
-
-NNLM exists to do one thing well:
-
-> **Produce grounded, cited natural language responses from deterministic memory.**
-
-If a problem fits that shape, NNLM excels.
-If it does not, NNLM will resist — and should.
+NNLM is a question-answering interface to the records in NAM. Outside that shape it will feel rigid, because it is.
 
 -> See also: [What NNLM Can Do](WHAT_NNLM_CAN_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)

@@ -1,130 +1,73 @@
 # References and Lineage
 
-This document lists **ideas, systems, and prior art** that influenced the design of NNLM.
-
-These references are **conceptual inspirations**, not dependencies, endorsements, or claims of equivalence.
-NNLM intentionally diverges from many of these approaches.
+Ideas, systems and prior work that NNLM builds on. These are influences and components, not endorsements or claims of equivalence.
 
 ---
 
 ## Foundation: Neural Addressable Memory (NAM)
 
-NNLM is built on NAM as its memory substrate.
+NNLM's memory substrate: storage, semantic addressing, vector search, a graph index, and a query service that fuses them with per-record provenance.
 
-NAM provides:
-
-* deterministic, address-based semantic retrieval
-* rich metadata (ontology, geometry, match scores)
-* structured address space for knowledge organization
-* auditability and reproducibility
-
-Without NAM, NNLM would not exist.
-
--> NAM Documentation: [https://github.com/neural-addressable-memory/nam-documentation](https://github.com/neural-addressable-memory/nam-documentation)
-
----
+-> NAM Documentation: [https://github.com/tdenton8772/nam-documentation](https://github.com/tdenton8772/nam-documentation)
 
 ## NNLM Source
 
-NNLM source code is available under a source-available license.
-
--> NNLM Repository: [https://github.com/neural-addressable-memory/nnlm](https://github.com/neural-addressable-memory/nnlm) (private)
+Source-available under a separate license. The source repository is not public; see [Licensing Model](../GOVERNANCE/LICENSING_MODEL.md).
 
 ---
 
-## Retrieval-Augmented Generation
+## Models Used
 
-### RAG
+### T5
 
-* Lewis et al. (2020). "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks."
+* Raffel et al. (2020). "Exploring the Limits of Transfer Learning with a Unified Text-to-Text Framework."
 
-RAG established the pattern of combining retrieval with generation.
-NNLM acknowledges this contribution but addresses RAG's structural limitations — specifically the absence of noise filtering, the lack of structural citation enforcement, and the reliance on embedding similarity for retrieval.
-
-NNLM is not an improvement on RAG. It is a different architecture that solves the same problem.
-
----
-
-## Relevant Concepts
+NNLM's generator is a fine-tuned T5 encoder-decoder, and its two planner models (retrieval planning and sufficiency checking) are T5-based text-to-text models.
 
 ### TabTransformer
 
 * Huang et al. (2020). "TabTransformer: Tabular Data Modeling Using Contextual Embeddings."
 
-The concept of applying attention-based architectures to tabular and structured data influenced NNLM's approach to record selection.
+NNLM's record selector builds on the TabTransformer: NAM's categorical metadata is embedded and combined with sentence embeddings of the question and record, and attention runs across the records of one question before each is scored.
 
-When record selection evaluates retrieved records, it operates on structured metadata — not free text. The insight that structured features benefit from contextual embedding informed the selection architecture.
+### Sentence embeddings
 
----
+* Reimers and Gurevych (2019). "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks."
 
-### Sequence-to-Sequence Models
-
-* Raffel et al. (2020). "Exploring the Limits of Transfer Learning with a Unified Text-to-Text Framework."
-
-The text-to-text paradigm influenced NNLM's generation stage.
-
-The concept of framing diverse language tasks as text-to-text problems is relevant to NNLM's approach of generating cited responses from structured evidence.
+The selector's text inputs come from a pretrained sentence-embedding model.
 
 ---
 
-### Soft Prompts and Prefix Tuning
+## Related Ideas
 
-* Lester et al. (2021). "The Power of Scale for Parameter-Efficient Prompt Tuning."
-* Li and Liang (2021). "Prefix-Tuning: Optimizing Continuous Prompts for Generation."
+### Retrieval-augmented generation
 
-The concept of conditioning language models via learned continuous representations — rather than discrete text prompts — influenced NNLM's approach to passing selection signals to the generation model.
+* Lewis et al. (2020). "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks."
 
-Soft prompt injection in NNLM carries structured relevance information from the selection stage, providing richer conditioning than text-based context stuffing.
+The pattern NNLM extends: retrieve, then generate. NNLM inserts trained selection, generation gates and citation checking between the two.
 
----
-
-### Pointer-Generator Networks
+### Pointer-generator networks
 
 * See et al. (2017). "Get To The Point: Summarization with Pointer-Generator Networks."
 
-The concept of models that can both generate from vocabulary and point to specific source tokens influenced NNLM's citation mechanism.
-
-NNLM's generation model produces citation markers that point to specific retrieved records — a structural echo of the pointer mechanism, applied at the record level rather than the token level.
+An influence on citation as pointing: NNLM's `[N]` markers point at whole records rather than source tokens.
 
 ---
 
 ## Systems Thinking
 
-### Deterministic Systems
-
-* Event-sourced architectures influenced NNLM's insistence on reproducibility
-* The principle that derived state should be rebuildable from inputs
-
-### Separation of Concerns
-
-* The Unix philosophy of composable, single-purpose tools influenced NNLM's multi-stage pipeline design
-* Each stage does one thing and has clear contracts with its neighbors
-
-### Failure Mode Design
-
-* NNLM was designed backward from failure cases
-* The architecture is shaped by asking "what goes wrong?" not "what would be cool?"
+* **Separation of concerns.** Single-purpose stages with explicit JSON contracts.
+* **Fail visibly.** Gates, guards, invalid-citation counts and execution location are surfaced rather than hidden.
+* **Degrade, don't stop.** GPU acceleration is optional and every accelerated call has a CPU fallback.
+* **Designed backward from failures.** Several mechanisms (the empty gate, past-answer exclusion, the rank floor in the keep rule) exist because a specific failure was observed and measured.
 
 ---
 
-## Explicit Non-Influences
+## Deliberately Not Used
 
-For clarity, NNLM intentionally does **not** draw from:
-
+* large hosted language models in the primary answer path
+* reinforcement learning from human feedback
+* learning at query time
 * autonomous agent frameworks
-* reinforcement learning from human feedback (RLHF)
-* chain-of-thought prompting as an architecture (though the encoder may use it internally)
-* embedding-based similarity search as a retrieval primitive
-
-These omissions are deliberate.
-
----
-
-## Closing Note
-
-NNLM is not an incremental improvement on RAG.
-It is an attempt to establish **structurally grounded, cited language generation** as a distinct architectural category.
-
-The references above represent starting points — not destinations.
 
 -> See also: [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Where NNLM Fits](../OVERVIEW/WHERE_NNLM_FITS.md) | [Why Not RAG](../PHILOSOPHY/WHY_NOT_RAG.md)

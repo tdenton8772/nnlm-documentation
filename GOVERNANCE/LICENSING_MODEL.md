@@ -129,4 +129,4 @@ Start with a conversation.
 
 Understanding comes before access.
 
--> See also: [Contributions](CONTRIBUTIONS.md) | [Security and Trust](SECURITY_AND_TRUST.md) | [NAM Licensing](https://github.com/neural-addressable-memory/nam-documentation/blob/main/GOVERNANCE/LICENSING_MODEL.md)
+-> See also: [Contributions](CONTRIBUTIONS.md) | [Security and Trust](SECURITY_AND_TRUST.md) | [NAM Licensing](https://github.com/tdenton8772/nam-documentation/blob/main/GOVERNANCE/LICENSING_MODEL.md)

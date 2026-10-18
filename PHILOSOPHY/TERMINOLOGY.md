@@ -1,241 +1,136 @@
 # Terminology
 
-*A shared language for reasoning about NNLM*
-
-NNLM introduces vocabulary that overlaps with retrieval systems, language models, and machine learning — but **does not mean the same things**.
-
-This document defines how key terms are used **specifically within NNLM**.
-If a term is defined here, this definition takes precedence over industry norms.
+*How key terms are used within NNLM.* Where a term here overlaps with industry usage, this definition applies in these documents.
 
 ---
 
 ## Grounding
 
-**Grounding** is the structural connection between a generated claim and a retrieved record.
-
-In NNLM, grounding is not:
-
-* a prompting strategy
-* a post-hoc verification step
-* a quality metric
-
-Grounding is:
-
-* **architectural** — enforced by the pipeline
-* **traceable** — every claim links to a specific record
-* **binary** — a claim is either grounded or it is not produced
-
-Grounding is the central guarantee of the system.
+The connection between a claim in an answer and a record the generator was shown. Enforced by structure: evidence filtering, selection, generation gates, and citation checking. Grounding means **traceable**, not **guaranteed correct**.
 
 ---
 
-## Citation
+## Record
 
-A **citation** is a structural marker in generated output that identifies which retrieved record supports a specific claim.
-
-Citations in NNLM are:
-
-* produced by the generation model as part of its output
-* not added by post-processing
-* required for every factual assertion
-* verifiable against the selected record set
-
-A response without citations is treated as a system failure, not a stylistic choice.
+A document returned by NAM, normalised into the shape the decoder consumes: text, record id, NAM address metadata (ontology, entity, match score, match geometry), vector similarity when available, and `retrieved_via`.
 
 ---
 
-## Noise Record
+## Provenance (`retrieved_via`)
 
-A **noise record** is a record returned by NAM retrieval that is not relevant to the user's query.
-
-NAM retrieval is broad by design — it returns records that occupy compatible regions of semantic space. Not all of these records are useful for answering the specific question asked.
-
-Noise records are:
-
-* expected, not erroneous
-* identified and filtered by the record selection stage
-* never passed to the generation model
-
-Removing noise before generation is critical to preventing hallucination.
+The NAM access paths that reached a record, joined with `+`: for example `address`, `vector`, `graph`, `address+graph`. Shown in the UI as **NAM**, **VEC** and **GRAPH** badges. Records from NNLM's own graph walk are marked `graph`.
 
 ---
 
-## Record Selection
+## Access Paths
 
-**Record selection** is the stage that separates signal from noise in retrieved records.
-
-It takes the full set of records from NAM retrieval and produces a scored, filtered subset — the records that actually address the user's query.
-
-Record selection is:
-
-* a learned model, not a heuristic filter
-* informed by NAM metadata (ontology, geometry, match scores)
-* the gatekeeper between retrieval and generation
-* the mechanism that enables rejection
-
----
-
-## Soft Prompt
-
-A **soft prompt** is a learned representation injected into the generation model's input, alongside or in place of text tokens.
-
-In NNLM, soft prompts carry:
-
-* learned signals from the record selection stage
-* information about which records are relevant and how strongly
-* structured conditioning that is richer than text alone
-
-Soft prompts are not:
-
-* text strings
-* hand-crafted instructions
-* prompt engineering
-
-They are **learned embeddings** that condition the generation model on selection output.
-
----
-
-## Address Projection
-
-**Address projection** is the process by which the encoder transforms a natural language query into structured NAM query instructions.
-
-This involves:
-
-* identifying entities
-* resolving references
-* determining query intent
-* producing coordinates and parameters for NAM retrieval
-
-Address projection is the bridge between natural language and NAM's semantic address space.
-
----
-
-## Memory Substrate
-
-The **memory substrate** is the underlying system that stores, organizes, and retrieves knowledge.
-
-In NNLM, the memory substrate is NAM.
-
-NNLM does not maintain its own knowledge store.
-It does not learn facts into weights.
-All knowledge lives in NAM and is accessed through deterministic retrieval.
-
-The memory substrate is not an accessory — it is the foundation.
-
----
-
-## Rejection
-
-**Rejection** is the system's decision to decline answering a query.
-
-Rejection occurs when:
-
-* record selection determines that no retrieved records sufficiently address the query
-* the signal-to-noise ratio is below the acceptance threshold
-* the system cannot ground a response in evidence
-
-Rejection is:
-
-* a first-class output, not an error
-* preferable to hallucination
-* actionable (it indicates a knowledge gap)
+NAM's retrieval paths inside one `/v1/query` call: **address** (matching on semantic address axes), **vector** (embedding similarity) and **graph** (traversal of NAM's graph index). NAM returns a per-path trace saying which ran, why, and what each contributed.
 
 ---
 
 ## Query Plan
 
-A **query plan** is the structured output of the encoder stage.
-
-It describes:
-
-* what entities were identified
-* what retrieval strategy should be used
-* what NAM parameters to apply
-* how the query was interpreted
-
-Query plans are:
-
-* inspectable
-* deterministic for a given input
-* the contract between the encoder and NAM
+The plan stage's output: scope, access patterns (`query`, `graph_walk`, `session_scan`, and `nam_graph` when NAM's graph path contributed), query texts, graph seeds and hops, and search geometry. Inspectable and exportable from the UI.
 
 ---
 
-## Entity Resolution
+## Supervisor (Planner)
 
-**Entity resolution** is the process of identifying and normalizing entities mentioned in a query.
-
-This includes:
-
-* recognizing that "Tyler" and "Tyler Denton" refer to the same entity
-* resolving pronouns in multi-turn conversation
-* mapping surface forms to canonical identifiers
-
-Entity resolution happens in the encoder stage and directly affects retrieval quality.
+A trained T5 query-planner model that reads the question, NAM encoder features and history, and decides scope, graph use, hops and geometry.
 
 ---
 
-## Affordance
+## Quality Agent
 
-An **affordance** describes *what kind of question* is being asked.
-
-Examples:
-
-* identity ("Who is...?")
-* location ("Where is...?")
-* temporal ("When did...?")
-* relationship ("How are X and Y connected?")
-
-Affordances guide retrieval strategy in NAM.
-They are detected during encoding.
+A second trained T5 planner that judges whether retrieval results are sufficient, and if not, whether to add a graph walk or broaden the search geometry. Its verdict (`sufficient`) gates generation.
 
 ---
 
-## Ontology
+## Record Selection / Selector
 
-An **ontology** in the NNLM context refers to the semantic role categories used by NAM to organize knowledge.
-
-Examples:
-
-* person
-* location
-* event
-* organization
-
-Ontologies define *what kind of thing* a record describes.
-They influence retrieval, selection, and generation behavior.
+The stage that decides which records the generator may see. The selector is a TabTransformer that scores each record from sentence embeddings and NAM metadata. A record is kept if it clears a fixed threshold or ranks among a fixed number of the highest-scoring records.
 
 ---
 
-## Match Geometry
+## Guard
 
-**Match geometry** describes the structural relationship between a query and a retrieved record in NAM's semantic space.
+A fixed rule applied after scoring: **source floor** (add back the best source record if only echoes of earlier answers were kept) and **empty gate** (no kept records means no generation). The guard that fired is shown in the UI.
 
-A record may match as:
+---
 
-* a **point** — exact alignment on all semantic axes
-* a **line** — alignment on some axes, broad on others
-* a **plane** — broad alignment, exploratory match
+## Noise Record
 
-Match geometry is part of the metadata returned by NAM and informs record selection.
+A retrieved record that does not help answer the question. Expected, because retrieval is broad; removed by selection.
+
+---
+
+## Poisoned Record
+
+A record that must never be evidence regardless of score: a turn from another session, NNLM bookkeeping, or a stored question-answer pair (the system's own past output). Removed before selection.
+
+---
+
+## Render
+
+The text input given to the generator: the question followed by the kept records, numbered `[1]`, `[2]`, ..., each truncated. The exact layout is part of each generator's contract and must match how it was trained.
+
+---
+
+## Citation
+
+An `[N]` marker in an answer naming a rendered record. Checked after generation; markers that name nothing shown are left out of the citations and reported as **invalid citations**.
+
+---
+
+## Decline
+
+An answer stating the records do not support a response. Either **structural** (a gate stopped generation) or **generated** (the generator, shown records without the answer, declined).
+
+---
+
+## Session / Turn
+
+A conversation, identified by a session id. Each **turn** (question, answer, entities, top record excerpts) is stored in NAM under a key made from the session id and the turn number, and read back to resolve follow-up references.
+
+---
+
+## Referent
+
+The entity a follow-up pronoun is resolved to: normally the previous question's subject, or a name from the answer after a "Who killed X?"-style question.
+
+---
+
+## Prewarm
+
+An explicit request to provision a GPU for the decoder. Without a prewarm, nothing is provisioned and everything runs on CPU. A GPU session ends on release or after a period of inactivity.
+
+---
+
+## Execution
+
+Where a one-shot decode was computed: `gpu` or `local`. Reported by `/decode` and `/ask`.
+
+---
+
+## Memory Substrate
+
+The system that holds NNLM's knowledge: NAM. NNLM keeps no knowledge store of its own.
+
+---
+
+## Ontology, Affordance, Match Geometry, Match Score
+
+NAM metadata on a record, used by the selector:
+
+* **Ontology** — what kind of thing the record describes (person, location, organization, event, ...).
+* **Affordance** — what kind of answer the query asks for (a person, a time, a location, ...), detected by NAM.
+* **Match geometry** — how specifically the record matched the query in NAM's address space (point, line, plane, volume).
+* **Match score** — how many semantic address axes matched. Kept separate from vector similarity, which is on a different scale.
 
 ---
 
 ## Why Terminology Matters
 
-NNLM fails if teams use:
-
-* "context" when they mean "retrieved records"
-* "prompt" when they mean "soft prompt injection"
-* "retrieval" when they mean "retrieval plus selection"
-* "grounded" when the connection is aspirational, not structural
-
-This document exists so that:
-
-* design discussions stay precise
-* expectations remain realistic
-* the distinction between NNLM and conventional systems remains clear
-
-If a word is overloaded — **stop and define it**.
+Say "kept records" when you mean what the generator saw, not "retrieved records". Say "traceable" when you mean grounded, not "correct". Say which access path found a record, not just that it was "retrieved".
 
 -> See also: [Design Principles](DESIGN_PRINCIPLES.md) | [Glossary](../APPENDIX/GLOSSARY.md) | [Pipeline Model](../ARCHITECTURE/PIPELINE_MODEL.md)

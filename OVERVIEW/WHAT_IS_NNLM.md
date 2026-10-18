@@ -1,97 +1,67 @@
 # What Is NNLM?
 
-NNLM is a language model that **only says what it can prove**.
+NNLM is a language system that **answers from stored records and says which ones**.
 
-Most language models generate text from patterns learned during training. NNLM generates text from **specific memory records** retrieved through deterministic address-based navigation.
-
-Every claim in an NNLM response traces to a cited source. If the system cannot find relevant information, it says so — it does not guess.
+It does not answer from what a model memorised in training. It retrieves candidate records from NAM, decides which of them are evidence, and writes a short answer from only those, marking each claim with a numbered citation. If the evidence is not there, it says the records do not contain the answer.
 
 ---
 
 ## A Simple Way to Think About It
 
-Most AI language systems work like this:
+A typical retrieval-augmented chatbot:
 
-> "Here's your question.
-> I'll search for similar things.
-> I'll stuff them into my context window.
-> I'll generate a response that sounds right."
+> Take the question. Find similar text. Paste it into a large model's prompt. Hope the model uses it.
 
-NNLM works differently:
+NNLM:
 
-> "Here's your question.
-> I'll navigate to the relevant addresses in memory.
-> I'll evaluate which records are actually relevant.
-> I'll generate a response constrained to those records, citing each one."
-
-The difference is subtle — and fundamental.
-
----
-
-## Why RAG Isn't Enough
-
-Retrieval-augmented generation was a step forward from pure hallucination. But RAG systems have structural problems:
-
-* They retrieve by similarity, which always returns *something* — even when nothing is relevant
-* They have no mechanism to distinguish signal from noise in retrieved results
-* They stuff all results into the context window and hope the LLM figures it out
-* They cannot explain which specific records contributed to which specific claims
-* They degrade as context grows — more retrieval means worse generation
-* They are non-deterministic — the same question can produce different answers
-
-NNLM is not a better RAG system. It is a different architecture.
+> Take the question. Work out what it is asking and who it is about, using the conversation so far. Ask NAM through several retrieval paths. Score every record that comes back and keep only the evidence. Have a small generator write an answer from that evidence, citing it. Check every citation points at something the generator was shown.
 
 ---
 
 ## What Makes NNLM Different
 
-**Memory is deterministic.**
-NNLM sits on top of NAM, which provides address-based retrieval. The same query always navigates to the same addresses, retrieves the same records. There is no ranking, no scoring, no probabilistic selection at the retrieval layer.
+**Evidence is selected, not dumped.**
+A trained selector (a TabTransformer) scores each retrieved record using its text and NAM's metadata about it. The generator only ever sees the records the selector keeps. If nothing is kept, the generator does not run.
 
-**Records are evaluated, not stuffed.**
-Before any text is generated, a dedicated model evaluates each retrieved record and classifies it as relevant or noise. Only relevant records flow to generation. Noise records are filtered out.
+**The generator is small and conditioned.**
+Answers are written by a fine-tuned T5 encoder-decoder model given the question and the numbered, selected records. It is small enough to run on CPU; a GPU makes it faster but is optional.
 
-**Generation is constrained.**
-The language model does not have free reign to say anything. It generates from the selected records and cites each claim with a specific marker. The architecture enforces this — it is not a prompt instruction.
+**Citations are checked.**
+A marker that does not correspond to a record the generator was shown is not counted as a citation, and the decoder records it.
 
-**Every stage is measurable.**
-Encoding, retrieval, selection, and generation are distinct stages with independent latency measurements. You can see exactly where time is spent and what each stage decided.
+**Provenance is kept.**
+NAM tells NNLM which of its paths (semantic address, vector similarity, graph) reached each record. That travels with the record into the UI.
+
+**Every stage is visible.**
+The UI shows the plan, what was retrieved, which records were kept and with what score, which were cited, and how long each stage took.
 
 ---
 
-## What NNLM Produces
+## What an Answer Looks Like
 
-A typical NNLM response looks like:
+An illustrative answer:
 
-> John Wilkes Booth was an American stage actor who assassinated President Abraham Lincoln at Ford's Theatre in Washington, D.C., on April 14, 1865 [1]. He was a Confederate sympathizer who opposed Lincoln's policies, particularly the abolition of slavery [1]. Allan Pinkerton, a Scottish-American detective, had previously obstructed a plot to assassinate Lincoln in 1861 [3].
+> Abraham Lincoln was assassinated by John Wilkes Booth at Ford's Theatre in Washington, D.C. [1]. Booth was a stage actor and Confederate sympathizer [2].
 
-Every bracketed number traces to a specific record retrieved from NAM. If a claim cannot be traced, it is not made.
+Each `[N]` refers to one of the records the generator was shown, and the selection panel marks those records as cited. For every retrieved record the panel shows its selector score, whether it was kept, whether it was cited, and badges for the NAM paths that retrieved it.
+
+When the records do not contain the answer, the reply says so instead.
 
 ---
 
 ## What NNLM Is For
 
-NNLM is best suited for:
+* question answering where a claim must be traceable to a source record
+* knowledge bases that change, where re-training a model for every update is impractical
+* deployments on modest hardware, including no GPU at all
+* settings where "the records do not say" is better than a guess
 
-* systems where factual accuracy is non-negotiable
-* domains where every claim must be traceable to source data
-* applications that require deterministic, auditable behavior
-* environments where "I don't know" is better than a guess
-* AI systems that need to explain their reasoning
-
-It is **not** designed to replace:
-
-* creative writing assistants
-* open-ended conversational chatbots
-* summarization tools that paraphrase freely
-* systems where fluency matters more than accuracy
-
-NNLM complements general-purpose language models — it doesn't compete with them.
+It is not designed for creative writing, open-ended chat, autonomous action, or answering from general world knowledge.
 
 ---
 
 ## In One Sentence
 
-**NNLM is a language model that generates grounded, citation-backed responses by navigating deterministic memory instead of guessing from learned patterns.**
+**NNLM retrieves from NAM, selects the evidence with a trained model, and writes a short cited answer from only that evidence — or declines.**
 
-→ See also: [Where NNLM Fits](WHERE_NNLM_FITS.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Multi-Stage Design](../ARCHITECTURE/MULTI_STAGE_DESIGN.md)
+-> See also: [Where NNLM Fits](WHERE_NNLM_FITS.md) | [Pipeline Model](../ARCHITECTURE/PIPELINE_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)

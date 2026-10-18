@@ -1,183 +1,69 @@
 # Grounding Model
 
-NNLM's grounding is not a feature.
-It is an **architectural constraint** that shapes every stage of the pipeline.
+Grounding in NNLM means: **every claim in an answer should come from a record the generator was shown, and the answer says which.**
 
-This document explains how NNLM ensures that every generated claim traces to a source — and why that guarantee is structural, not behavioral.
-
----
-
-## What Grounding Means in NNLM
-
-Grounding means:
-
-> Every factual claim in a generated response is connected to a specific retrieved record that was scored as relevant by the selection stage.
-
-This is not:
-
-* a suggestion to the language model
-* a post-processing verification step
-* a quality metric applied after generation
-
-It is a **pipeline invariant**.
+This document lists the mechanisms that push the system toward that, and is explicit about what they do and do not guarantee.
 
 ---
 
-## How Grounding Is Achieved
+## The Mechanisms
 
-### 1. Deterministic Retrieval
+### 1. All evidence comes from NAM
 
-All evidence comes from NAM.
+NNLM has no knowledge store of its own. Every record the generator sees was returned by NAM's query service or reached by a NAM graph walk in the same request. Each record carries `retrieved_via`, the NAM paths that reached it (address, vector, graph, or a combination).
 
-NAM retrieval is:
+### 2. Bad evidence is filtered before selection
 
-* address-based, not similarity-based
-* deterministic — the same query always returns the same records
-* inspectable — every retrieval path can be traced
+Some things NAM can return are never valid evidence and are removed unconditionally:
 
-This means the evidence set is known, stable, and auditable before generation begins.
+* turns stored by *other* conversation sessions;
+* NNLM's own bookkeeping documents (for example the session index);
+* stored question-answer pairs, including from the current session. A previous answer is the system's own output, and treating it as evidence would let one bad answer reinforce itself.
 
----
+### 3. A trained selector chooses the evidence
 
-### 2. Noise Filtering Before Generation
+The TabTransformer scores every remaining record, and only kept records go forward. See [Record Selection](RECORD_SELECTION.md).
 
-NAM retrieval is intentionally broad. It returns records that occupy compatible semantic regions — but not all of those records are relevant to the specific query.
+### 4. Generation is gated
 
-The record selection stage removes noise **before the generation model sees it**.
+The generator does not run if retrieval was judged insufficient, if there are no records, or if selection kept nothing. A model fine-tuned to answer will otherwise answer from its weights when given nothing; the gate removes that possibility.
 
-This matters because:
+### 5. The generator only sees kept records
 
-* language models are susceptible to distraction from irrelevant context
-* noise records can cause hallucination even in well-prompted systems
-* fewer, more relevant records produce more accurate generation
+Records selection dropped are not rendered into the generator's input. The model cannot quote or cite what it was not given.
 
-If the generation model never sees irrelevant records, it cannot be misled by them.
+### 6. Citations are checked
 
----
-
-### 3. Conditioned Generation
-
-The generation model does not receive a raw text prompt with retrieved documents pasted in.
-
-Instead, it receives:
-
-* the content of selected records
-* learned representations from the selection stage that encode relevance signals
-* the original query
-
-This conditioning is more precise than text-based context stuffing. The model receives structured signals about what matters, not just more text to parse.
+Each `[N]` in the answer must point at a record that was shown. A marker that does not is left out of the citation list and links to no record; the decoder logs it, and the one-shot API reports it as `invalid_citations`.
 
 ---
 
-### 4. Citation as Structural Output
+## Declining
 
-Citations in NNLM are produced **by the generation model** as part of its output structure.
+NNLM declines in two ways:
 
-They are not:
+* **Structurally**, when a gate fires (insufficient quality, no records, nothing selected). The reply comes from the pipeline, not the model.
+* **From the generator**, when it was shown records that do not contain the answer and says so.
 
-* added by post-processing
-* inferred by matching text spans to documents
-* optional formatting
-
-The model is trained to produce citations as first-class output tokens. Every factual assertion is tagged with the record that supports it.
-
-This means:
-
-* citation correctness is measurable
-* missing citations are detectable
-* false citations are identifiable
+Declining is treated as a correct outcome when the records do not support an answer.
 
 ---
 
-## The Role of Record Selection in Preventing Hallucination
+## What Grounding Does Not Guarantee
 
-Record selection is the critical grounding mechanism.
-
-Without it, the generation model would receive:
-
-* relevant records
-* partially relevant records
-* irrelevant records that happen to share semantic space
-
-And it would need to determine relevance on its own — which language models are bad at.
-
-With record selection:
-
-* the generation model receives only records scored as relevant
-* the number of input records is reduced, limiting confusion
-* the selection model's decisions are inspectable and measurable
-* irrelevant records are explicitly removed, not relied upon to be ignored
-
-Record selection transforms the grounding problem from "hope the model uses the right context" to "only give the model the right context."
+* **Correctness of the source.** If a NAM record is wrong, a grounded answer will repeat it, with a citation that lets you find it.
+* **That every sentence is supported.** The generator is a trained model. It is conditioned on the records and its citations are checked, but a sentence can still overstate or misattribute what a cited record says. Measuring unsupported claims is part of the evaluation process for every model change.
+* **Completeness.** If NAM does not retrieve the record that contains the answer, NNLM cannot use it.
 
 ---
 
-## How Rejection Works
+## How This Differs From Prompt-Based Grounding
 
-Grounding has a natural consequence: if there is insufficient evidence, the system should say so.
-
-NNLM's rejection mechanism works as follows:
-
-1. NAM retrieval returns a set of candidate records
-2. The selection stage scores each record
-3. If no records (or too few) pass the selection threshold, the pipeline produces a rejection response
-4. The rejection response indicates that the system could not find sufficient evidence to answer
-
-This is fundamentally different from a language model saying "I'm not sure" — which is a generated phrase, not a structural signal.
-
-In NNLM, rejection means:
-
-* the selection stage made a measurable decision
-* the decision is based on concrete scores
-* the threshold is configurable and auditable
-* no hallucinated response was produced
-
----
-
-## What Grounding Does Not Mean
-
-Grounding in NNLM does not mean:
-
-* **the response is correct** — if NAM contains incorrect records, the response will cite them faithfully
-* **the response is complete** — if relevant records are not in NAM, they cannot be cited
-* **the response is the only possible answer** — different retrieval paths might yield different evidence
-
-Grounding means the response is **traceable to evidence**.
-Whether that evidence is accurate is a separate concern — one that belongs to the data layer, not the language layer.
-
----
-
-## Why This Is Different From RAG
-
-In RAG:
-
-* grounding is attempted by providing context
-* there is no noise filtering
-* the model decides what to use
-* citation is cosmetic, not structural
-
-In NNLM:
-
-* grounding is enforced by pipeline architecture
-* noise is removed before generation
-* the model operates on pre-filtered evidence
-* citation is a required output of the generation model
-
-The difference is not degree. It is kind.
-
----
-
-## Summary
-
-NNLM's grounding model ensures that:
-
-* every claim traces to a retrieved record
-* irrelevant records are removed before generation
-* citations are structural, not cosmetic
-* rejection is preferred over hallucination
-* the entire chain — from query to claim to record — is inspectable
-
-Grounding is not what NNLM does.
-It is what NNLM **is**.
+| | Instructing a large model | NNLM |
+|---|---|---|
+| Irrelevant records | Present in the prompt; model asked to ignore them | Removed before the generator runs |
+| No evidence | Model asked to admit it | Generator does not run |
+| Citations | Requested | Required, and checked against what was shown |
+| Past answers | Often in context | Never treated as evidence |
 
 -> See also: [Record Selection](RECORD_SELECTION.md) | [Generation Model](GENERATION_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)

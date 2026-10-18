@@ -1,162 +1,77 @@
 # Session and Context
 
-NNLM supports multi-turn conversation.
-
-This is not achieved by stuffing previous turns into a context window.
-It is achieved through **session-based memory** backed by NAM.
+NNLM supports multi-turn conversation. It does this by **storing each turn in NAM and resolving references against those stored turns**, not by pasting the whole conversation into a model's input.
 
 ---
 
-## The Context Window Problem
+## Sessions
 
-Most conversational AI systems handle multi-turn interaction by:
-
-* concatenating previous turns into the prompt
-* relying on the model's context window to maintain coherence
-* hoping the model tracks references, pronouns, and topic shifts
-
-This approach has fundamental limitations:
-
-* context windows have size limits
-* earlier turns get less attention as the conversation grows
-* the model must re-process the entire conversation at every turn
-* there is no structural representation of what was discussed — just raw text
-
-NNLM takes a different approach.
+Each conversation has a session id. The UI keeps it in the browser so a reload or reconnect returns to the same conversation, and the sidebar lists previous sessions so any of them can be reopened.
 
 ---
 
-## Session-Based Memory
+## Where Turns Live
 
-In NNLM, each conversation is a **session**.
+After each answer, the UI asks the encoder to write the turn into NAM's main bucket, under a key made from the session id and the turn number. A turn stores:
 
-A session maintains:
+* the question and the answer
+* entity names — the answer's people, organisations and places first, then the question's entities
+* short excerpts from the top records
 
-* the history of queries in the conversation
-* the entities that have been discussed
-* resolved references from previous turns
-* context that carries across turns
+The write goes to the data node that owns the key. If the store rejects it, `/write_turn` returns `ok: false` and logs the failure instead of reporting success. The UI does not wait for the write.
 
-This information is managed through NAM's addressing and retrieval system — not by accumulating text in a prompt window.
+The one-shot `/ask` endpoint reads a session's stored turns when it is given a session id, but does not write a new one.
 
----
-
-## How Context Carries Across Turns
-
-When a user asks a follow-up question, the encoder stage has access to the session context.
-
-This means:
-
-* **Pronoun resolution** — "What else did he do?" can be resolved to the entity discussed in the previous turn
-* **Coreference tracking** — references to "the company" or "that project" can be linked to previously mentioned entities
-* **Topic continuity** — the encoder understands that a follow-up question relates to the same subject
-* **Entity persistence** — entities resolved in earlier turns remain available without re-identification
-
-The encoder uses session context to produce more precise query plans for follow-up questions.
+Because turns are ordinary NAM documents, NAM ingests and addresses them like any other record. A session index document records each session's title, turn count and last update for the sidebar.
 
 ---
 
-## How This Differs From Context Window Stuffing
+## Reading the Session Back
 
-| Property | Context window | Session memory |
-|---|---|---|
-| Storage | Raw text in prompt | Structured session state |
-| Scalability | Limited by window size | Limited by session design |
-| Resolution | Model must infer | Explicitly resolved |
-| Efficiency | Re-processes everything | Incremental updates |
-| Reliability | Degrades with length | Stable across turns |
+At the start of each question, the plan stage reads the session's turns from NAM by key, in order. Their questions become the planner's history, and their entities are added to the extracted entities.
 
-Context window stuffing treats conversation history as undifferentiated text.
-Session memory treats it as **structured knowledge** about what has been discussed.
+When the UI reconnects to an existing session, it loads the same stored turns to redraw the conversation.
 
 ---
 
-## Pronoun Resolution and Coreference
+## Follow-Up Pronouns
 
-Multi-turn conversations are full of implicit references:
+If the new question contains a pronoun, the plan stage replaces one of them with a referent taken from the stored turns, before any retrieval:
 
-* "Tell me more about **her**."
-* "What happened **there**?"
-* "How does **that** relate to the first one?"
+1. Walk the turns newest first.
+2. Skip turns whose question itself contains a pronoun ("Who did he defeat?"); they introduce no new subject.
+3. Normally, the referent is the **subject of that previous question** (its longest capitalised name).
+4. Exception: after a question that asks for someone *other* than the person it names — "Who killed X?" — the referent is a **name from that turn's answer**.
+5. Possessive pronouns become `X's`.
 
-In a system without session memory, these references are ambiguous.
-The model must guess what "her," "there," and "that" refer to.
+Example:
 
-In NNLM:
+* "Who was Abraham Lincoln?" -> answered.
+* "Where was he born?" -> resolved to "Where was Abraham Lincoln born?"
+* "Who killed Abraham Lincoln?" -> answered: John Wilkes Booth.
+* "Where did he die?" -> resolved to "Where did John Wilkes Booth die?"
 
-* the encoder resolves pronouns against the session's entity history
-* coreferences are resolved before the query plan is generated
-* NAM retrieval receives a fully resolved query, not an ambiguous one
-* resolution decisions are inspectable in the query plan
-
-This produces more accurate retrieval and, consequently, more relevant responses.
-
----
-
-## What Session Memory Does Not Do
-
-Session memory does not:
-
-* **persist across sessions** — each conversation starts fresh
-* **learn from the conversation** — no model adaptation occurs during a session
-* **expand NAM's knowledge** — session context is for retrieval, not ingestion
-* **guarantee perfect resolution** — ambiguous references may still be unresolvable
-
-Session memory is a **query enhancement mechanism**, not a knowledge accumulation mechanism.
+Both the resolved and original questions are sent to NAM, and the UI shows the resolved form in the plan.
 
 ---
 
-## How Sessions Interact With the Pipeline
+## Session Records as Evidence
 
-Sessions affect the **encoding stage** only.
+Turns are in NAM, so a NAM query can return them. Rules applied before selection:
 
-The rest of the pipeline is unaware of sessions:
+* turns from **other** sessions are never evidence;
+* stored question-answer text is never evidence, including the current session's — it is the system's own past output;
+* if selection keeps only echoes of earlier answers while source records exist, the best source record is added back.
 
-* **Retrieval** operates on the query plan, which already reflects session context
-* **Selection** operates on retrieved records, independent of conversation history
-* **Generation** operates on selected records, with the original query for context
-
-This isolation is deliberate. Session context improves query planning without complicating downstream stages.
+The session's role is to resolve *what is being asked*, not to supply facts.
 
 ---
 
-## Multi-Turn Example (Conceptual)
+## What Sessions Do Not Do
 
-Turn 1:
+* They do not change any model. Nothing is learned during a conversation.
+* They do not make an answer more trustworthy: facts still have to come from source records.
+* Resolution is rule-based and replaces one pronoun per question. Ambiguous references (two candidate people, a pronoun meaning a place) can resolve wrongly; the resolved question is shown so this is visible.
+* At most the first twenty turns of a session are read back.
 
-* User: "What is Neural Addressable Memory?"
-* Encoder identifies entity: NAM
-* NAM retrieves relevant records
-* Selection and generation produce a cited response
-
-Turn 2:
-
-* User: "Who created it?"
-* Encoder resolves "it" to NAM from session context
-* Query plan becomes: "Who created NAM?"
-* Pipeline proceeds with a fully resolved query
-
-Turn 3:
-
-* User: "What are the design principles?"
-* Encoder carries forward that the topic is NAM
-* Query plan targets NAM design principles specifically
-
-At no point is the full text of previous turns stuffed into a prompt.
-The session provides structured context that makes each query self-contained.
-
----
-
-## Summary
-
-NNLM handles multi-turn conversation through:
-
-* session-based memory, not context window stuffing
-* explicit pronoun and coreference resolution in the encoder stage
-* entity persistence across turns
-* structured context that improves query planning
-* isolation of session logic from downstream pipeline stages
-
-Conversations in NNLM are coherent because the system **understands what has been discussed**, not because it re-reads the entire conversation at every turn.
-
--> See also: [Pipeline Model](PIPELINE_MODEL.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [What NNLM Can Do](../CAPABILITIES/WHAT_NNLM_CAN_DO.md)
+-> See also: [Pipeline Model](PIPELINE_MODEL.md) | [Grounding Model](GROUNDING_MODEL.md) | [What NNLM Can Do](../CAPABILITIES/WHAT_NNLM_CAN_DO.md)

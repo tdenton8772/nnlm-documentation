@@ -1,181 +1,91 @@
 # Where NNLM Fits
 
-NNLM is not a chatbot.
-It is not a search engine with a language model bolted on.
-It is not RAG with better prompts.
-
-It sits **between** retrieval systems and language models — and makes the connection structural.
+NNLM sits between a memory system (NAM) and the person asking a question. Its job is to turn retrieved records into a short answer that only says what those records support.
 
 ---
 
-## The Problem With Current Approaches
+## The Usual Patterns
 
-Most AI systems that generate natural language from data follow one of two patterns:
+* **Closed-book generation.** A model answers from its weights. No sources, no way to check.
+* **Retrieval-augmented generation (RAG).** Retrieve passages, paste them into a large model's prompt, let the model decide what to use.
 
-* **Closed-book generation** — the model answers from its training weights, with no external data
-* **Open-book generation (RAG)** — the model is given retrieved context and asked to synthesize an answer
+In both, the language model decides what is relevant and what to say, in one opaque step.
 
-Both patterns share a fundamental weakness:
-
-> The language model decides what to say.
-
-NNLM exists to change that relationship.
+NNLM splits that step apart.
 
 ---
 
-## The Missing Layer
-
-Modern AI stacks typically look like this:
+## The NNLM Shape
 
 ```
-Data  ->  Retrieval  ->  Language Model  ->  Output
+Question (+ session id)
+   |
+Plan stage      -- resolve follow-up pronouns from stored turns, extract entities,
+   |               trained planner chooses access patterns
+Retrieve stage  -- NAM query (address + vector + graph paths), graph walks,
+   |               trained quality check, one broadening retry if needed
+Select          -- TabTransformer scores each record; keep the evidence
+   |
+Generate        -- T5 writes an answer from the kept records, citing [N]
+   |
+Write turn      -- the exchange is stored back in NAM under the session id
 ```
 
-What is missing is **grounding as a structural guarantee**.
-
-NNLM inserts accountability between retrieval and generation:
-
-```
-Query
-   |
-Encoding (structured query planning)
-   |
-NAM Retrieval (deterministic, address-based)
-   |
-Record Selection (signal vs noise)
-   |
-Generation (constrained to selected records)
-   |
-Cited Response
-```
-
-Every stage is independent.
-Every stage is measurable.
-Every claim in the output traces to a source.
+In the UI each arrow is a separate HTTP call with a JSON contract, and each stage's output is shown as it completes.
 
 ---
 
-## NNLM vs Chatbots
+## NNLM vs Chat Assistants
 
-### Chatbots
-
-* generate from training weights
-* no external grounding
-* confidence without evidence
-* hallucination is the default mode
-* no citation mechanism
-
-### NNLM
-
-* generates from retrieved records only
-* structurally grounded to NAM
-* refuses to assert without evidence
-* hallucination is architecturally prevented
-* citation is a structural output, not a cosmetic addition
-
-**Chatbots generate answers.
-NNLM generates cited responses from retrieved evidence.**
+| | Chat assistant | NNLM |
+|---|---|---|
+| Knowledge source | Model weights | Records in NAM |
+| Sources shown | Rarely, or after the fact | Every answer, per claim |
+| When it does not know | Usually answers anyway | Declines |
+| Scope | Anything | Questions the stored records can answer |
 
 ---
 
 ## NNLM vs RAG
 
-### RAG
+NNLM does use similarity search: NAM's vector path is one of its three retrieval paths. What differs is what happens next.
 
-* retrieves by embedding similarity
-* stuffs context into a prompt
-* hopes the model uses it correctly
-* no structural guarantee of grounding
-* no filtering between retrieval and generation
-
-### NNLM
-
-* retrieves by deterministic addressing via NAM
-* filters noise records before generation
-* conditions generation on learned representations, not just text
-* every claim must cite a selected record
-* rejection is a first-class output
-
-**RAG is a pipeline.
-NNLM is an architecture.**
-
-They solve the same problem at different levels of rigor.
+| | Typical RAG | NNLM |
+|---|---|---|
+| Retrieval | Embedding similarity | NAM's fused address, vector and graph paths, with per-record provenance |
+| Between retrieval and generation | Nothing, or a reranker | A trained selector that keeps or drops each record |
+| Generator input | Everything retrieved | Only the kept records, numbered |
+| No evidence kept | Generates anyway | Generation does not run |
+| Citations | Optional, unchecked | Required; markers naming records not shown are not counted |
+| Generator size | Large hosted model | Small encoder-decoder, runs on CPU |
 
 ---
 
-## NNLM vs Fine-Tuned Language Models
+## NNLM vs Fine-Tuned Models
 
-### Fine-tuned LLMs
-
-* encode knowledge into model weights
-* expensive to update
-* opaque reasoning
-* no traceability to source data
-* drift as training data changes
-
-### NNLM
-
-* keeps knowledge in NAM, not in weights
-* updates by ingesting new data into NAM
-* traceable reasoning via citations
-* deterministic retrieval path
-* stable behavior across model versions
-
-**Fine-tuned models learn facts.
-NNLM looks them up.**
+A fine-tuned model stores knowledge in its weights; updating the knowledge means re-training. NNLM's models learn how to *select and phrase*, not facts. Updating what NNLM knows means ingesting new data into NAM.
 
 ---
 
-## Where NNLM Sits in the Landscape
+## Where It Is Most Useful
 
-NNLM occupies a specific position:
-
-* **More grounded than RAG** — structural guarantees, not prompting conventions
-* **More expressive than search** — natural language responses with citations
-* **More auditable than chatbots** — every claim traces to evidence
-* **More modular than fine-tuned models** — knowledge lives outside the model
-
-It is most valuable when:
-
-* accuracy matters more than fluency
-* responses must be auditable
-* hallucination is not an acceptable failure mode
-* the knowledge base changes and the system must stay current
+* when answers must be checkable against source records
+* when the knowledge base changes often
+* when hardware is limited
+* when declining is acceptable and guessing is not
 
 ---
 
 ## What NNLM Is Not Trying To Be
 
-NNLM is intentionally **not**:
-
-* a general-purpose conversational AI
-* a creative writing tool
-* a summarization engine
-* a replacement for NAM
-* a standalone system (it requires NAM as its memory substrate)
-
-Trying to make it those things would break its core guarantees.
+* a general-purpose assistant
+* a creative or summarisation tool for arbitrary text
+* a replacement for NAM, or a system that works without it
 
 ---
 
-## The Positioning in One Sentence
+## In One Sentence
 
-**NNLM is a structurally grounded language interface to deterministic memory, where every generated claim is constrained to cited evidence from NAM.**
-
----
-
-## How It Fits Together
-
-A typical interaction:
-
-```
-Natural language query  ->  NNLM encoder  ->  NAM retrieval  ->  record selection  ->  generation  ->  cited response
-```
-
-NAM provides the memory.
-NNLM provides the language interface.
-Each does what it is designed for.
-
-They are co-dependent by design.
+**NNLM is a staged, inspectable language interface to NAM that only answers from records it has selected as evidence.**
 
 -> See also: [Why NNLM Exists](WHY_NNLM_EXISTS.md) | [Multi-Stage Design](../ARCHITECTURE/MULTI_STAGE_DESIGN.md) | [Why Not RAG](../PHILOSOPHY/WHY_NOT_RAG.md)

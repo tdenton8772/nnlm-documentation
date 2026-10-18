@@ -1,189 +1,55 @@
 # Glossary
 
-This glossary is a **navigation aid**, not an authoritative definitions document.
-
-Canonical definitions for NNLM concepts live in
-**PHILOSOPHY/TERMINOLOGY.md**.
-This file exists to help readers quickly orient themselves and find the
-correct place to learn more.
+A quick-reference index. Canonical definitions live in [Terminology](../PHILOSOPHY/TERMINOLOGY.md).
 
 ---
 
-## Address Projection
+**Access paths** — NAM's address, vector and graph retrieval paths inside one query. -> Terminology
 
-The process by which the encoder transforms a natural language query into
-structured NAM query instructions — mapping from language to semantic
-address space.
+**Citation** — an `[N]` marker naming a record the generator was shown; checked after generation. -> Terminology
 
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Address Projection**
+**Decoder** — the service that runs record selection and generation. -> [Pipeline Model](../ARCHITECTURE/PIPELINE_MODEL.md)
 
----
+**Decline** — an answer stating the records do not support a response; structural (a gate fired) or generated. -> Terminology
 
-## Affordance
+**Encoder** — the service that runs the plan and retrieve stages, session read/write and `/ask`. -> [Pipeline Model](../ARCHITECTURE/PIPELINE_MODEL.md)
 
-An inferred capability of a query that determines *how* NAM should interpret
-and explore knowledge (e.g., identity lookup, location, relationship).
+**Execution** — where a one-shot decode was computed: `gpu` or `local`. -> Terminology
 
-Affordances guide retrieval strategy but do not score or rank results.
+**Generation** — the T5 encoder-decoder writing a cited answer from the kept records. -> [Generation Model](../ARCHITECTURE/GENERATION_MODEL.md)
 
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Affordance**
+**Grounding** — the traceable link between a claim and a shown record. -> [Grounding Model](../ARCHITECTURE/GROUNDING_MODEL.md)
 
----
+**Guard** — a fixed post-selection rule: source floor or empty gate. -> [Record Selection](../ARCHITECTURE/RECORD_SELECTION.md)
 
-## Citation
+**Invalid citation** — a marker naming no shown record; not counted as a citation, and reported. -> Terminology
 
-A structural marker in generated output that links a specific factual claim
-to the retrieved record that supports it. Citations are produced by the
-generation model as first-class output tokens, not added by post-processing.
+**Match geometry / match score** — NAM metadata describing how a record matched in address space. -> Terminology
 
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Citation**
+**NAM** — Neural Addressable Memory, NNLM's memory substrate. -> Terminology
 
----
+**Noise record** — a retrieved record that does not help answer; removed by selection. -> Terminology
 
-## Encoder
+**Poisoned record** — a record never allowed as evidence: other sessions' turns, bookkeeping, stored question-answer pairs. -> Terminology
 
-The first stage of the NNLM pipeline. Transforms a natural language query
-into a structured query plan, including entity resolution, intent detection,
-and NAM query parameters.
+**Prewarm** — the explicit request that provisions a GPU for the decoder; without it, everything runs on CPU. -> Terminology
 
--> See: **ARCHITECTURE/PIPELINE_MODEL.md -- Stage 1: Encoding**
+**Provenance / `retrieved_via`** — the NAM paths that reached a record; shown as NAM, VEC, GRAPH badges. -> Terminology
 
----
+**Quality agent** — trained planner that judges whether retrieval is sufficient. -> Terminology
 
-## Entity Resolution
+**Query plan** — the plan stage's output. -> Terminology
 
-The process of identifying and normalizing entities mentioned in a query —
-recognizing that different surface forms refer to the same entity, resolving
-pronouns, and mapping to canonical identifiers.
+**Record selection / selector** — the TabTransformer stage that decides which records the generator sees. -> [Record Selection](../ARCHITECTURE/RECORD_SELECTION.md)
 
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Entity Resolution**
+**Referent** — the entity a follow-up pronoun resolves to. -> [Session and Context](../ARCHITECTURE/SESSION_AND_CONTEXT.md)
+
+**Render** — the generator's text input: question plus numbered kept records. -> Terminology
+
+**Session / turn** — a conversation and its stored exchanges in NAM. -> [Session and Context](../ARCHITECTURE/SESSION_AND_CONTEXT.md)
+
+**Supervisor** — trained planner that chooses scope, access patterns and graph hops. -> Terminology
 
 ---
 
-## Generation
-
-The fourth and final stage of the NNLM pipeline. Produces a natural language
-response with citations from the selected records, or a rejection when evidence
-is insufficient.
-
--> See: **ARCHITECTURE/GENERATION_MODEL.md**
-
----
-
-## Grounding
-
-The structural connection between a generated claim and a retrieved record.
-In NNLM, grounding is architectural — enforced by the pipeline, not suggested
-by prompting.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Grounding**
-
----
-
-## Match Geometry
-
-The structural relationship between a query and a retrieved record in NAM's
-semantic space. Records may match as points (exact), lines (partial), or
-planes (broad).
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Match Geometry**
-
----
-
-## Memory Substrate
-
-The underlying system that stores, organizes, and retrieves knowledge. In NNLM,
-the memory substrate is NAM. All knowledge lives in NAM and is accessed through
-deterministic retrieval.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Memory Substrate**
-
----
-
-## Noise Record
-
-A record returned by NAM retrieval that is not relevant to the user's query.
-Noise records are expected (NAM retrieval is broad by design) and are removed
-by the record selection stage before generation.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Noise Record**
-
----
-
-## Ontology
-
-A semantic role category used by NAM to organize knowledge (e.g., person,
-location, event, organization). Ontologies define what kind of thing a record
-describes, influencing retrieval and selection.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Ontology**
-
----
-
-## Query Plan
-
-The structured output of the encoder stage. Describes what entities were
-identified, what retrieval strategy should be used, and what NAM parameters
-to apply.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Query Plan**
-
----
-
-## Record Selection
-
-The third stage of the NNLM pipeline. Separates signal from noise by scoring
-each retrieved record for relevance using NAM metadata. The gatekeeper between
-retrieval and generation.
-
--> See: **ARCHITECTURE/RECORD_SELECTION.md**
-
----
-
-## Rejection
-
-The system's decision to decline answering a query when record selection
-determines that no retrieved records sufficiently address the question.
-A first-class output, not an error.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Rejection**
-
----
-
-## Retrieval
-
-The second stage of the NNLM pipeline. Executes the query plan against NAM
-and returns candidate records with rich metadata. Deterministic — the same
-query plan always produces the same results.
-
--> See: **ARCHITECTURE/PIPELINE_MODEL.md -- Stage 2: Retrieval**
-
----
-
-## Session
-
-A conversation context that tracks discussed entities, resolved references,
-and topic continuity across multiple turns. Managed through structured state,
-not context window stuffing.
-
--> See: **ARCHITECTURE/SESSION_AND_CONTEXT.md**
-
----
-
-## Soft Prompt
-
-A learned embedding injected into the generation model's input that carries
-structured information from the record selection stage — relevance signals,
-confidence indicators — richer than text alone.
-
--> See: **PHILOSOPHY/TERMINOLOGY.md -- Soft Prompt**
-
----
-
-### Notes
-
-* This glossary intentionally avoids implementation detail.
-* If a term appears ambiguous or overloaded, defer to **TERMINOLOGY.md**.
-* New terms should be added here *only after* being defined canonically.
-
--> See also: [Terminology](../PHILOSOPHY/TERMINOLOGY.md) (canonical definitions)
+New terms are added here only after they are defined in Terminology.

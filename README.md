@@ -1,188 +1,101 @@
 # NNLM — NAM-Native Language Model
 
-**NNLM** is a language model built entirely on [Neural Addressable Memory (NAM)](https://github.com/tdenton8772/nam-documentation) as its memory substrate.
+**NNLM** is a grounded question-answering language system built on [Neural Addressable Memory (NAM)](https://github.com/tdenton8772/nam-documentation) as its memory substrate.
 
-NNLM is not a chatbot, not a RAG system, and not a fine-tuned LLM with retrieval bolted on.
-It is a different approach to language — one that treats **memory as deterministic structure**, not probabilistic context.
+It answers a question by planning how to search NAM, retrieving candidate records through NAM's address, vector and graph paths, deciding which of those records are evidence, and generating a short answer from only those records, with numbered citations. When the evidence is not there, it says so.
 
-This repository contains the **public documentation** for NNLM: its philosophy, architecture, capabilities, and roadmap. It intentionally excludes private implementation details.
+This repository is the **public documentation** for NNLM: what it is, how it is built, what it can and cannot do, and where it is going. It describes the system as it runs today. It deliberately leaves out private implementation detail.
 
 ---
 
 ## What Problem NNLM Solves
 
-Modern language models have a fundamental problem: they hallucinate.
+General-purpose language models answer from what they absorbed in training. They are fluent whether or not they are right, and they cannot show where an answer came from.
 
-They generate fluent, confident text that has no grounding in reality. Retrieval-augmented generation (RAG) was supposed to fix this, but RAG systems:
+NNLM is built for a narrower and stricter job:
 
-* stuff context windows with ranked similarity results
-* have no mechanism to reject irrelevant records
-* cannot explain which records contributed to which claims
-* lose coherence as context grows
-* treat retrieval and generation as loosely coupled stages
-
-NNLM addresses a different class of problems:
-
-* "Every claim must trace to a specific source"
-* "The system should say 'I don't know' when it doesn't know"
-* "Retrieval and generation should be structurally coupled, not just pipelined"
-* "The system must be deterministic and inspectable at every stage"
+* every claim should trace to a specific stored record
+* the system should decline when the stored records do not contain the answer
+* retrieval, selection and generation should be separate, inspectable steps
+* the answering model should be small enough to run on modest hardware
 
 ---
 
 ## What NNLM Is
 
-NNLM is a **grounded language model** with the following defining characteristics:
-
-* **NAM-native**
-  Memory is not retrieved by similarity. It is navigated via deterministic address-based access through NAM.
-
-* **Structurally grounded**
-  Generation is constrained by what memory actually contains. Claims cite specific records. Noise is filtered before generation begins.
-
-* **Multi-stage**
-  Encoding, record selection, and generation are distinct stages with independent models, each inspectable and measurable.
-
-* **Citation-first**
-  Every substantive claim in a response traces to a specific memory record via `[N]` citation markers. This is architectural, not cosmetic.
-
-* **Rejection-aware**
-  The system distinguishes between records that support an answer and records that are noise. Noise records are filtered before generation, not after.
+* **NAM-native.** All evidence comes from NAM. NNLM keeps no knowledge store of its own; conversation turns are written back into NAM too.
+* **Multi-stage.** Planning, retrieval, record selection and generation are separate stages with separate models and separate outputs you can inspect.
+* **Selection before generation.** A trained selector (a TabTransformer) scores every retrieved record. Only the records it keeps are shown to the generator.
+* **Encoder-decoder generation.** A fine-tuned T5 model writes the answer from the selected records. It is conditioned on those records, not on an open-ended prompt.
+* **Citation-checked.** Answers cite records as `[N]`. A marker that does not point at a record the generator was shown is not counted as a citation and links to no record.
+* **Provenance-visible.** Every record carries the NAM paths that reached it (address, vector, graph), and the UI shows them.
 
 ---
 
 ## What NNLM Is Not
 
-To avoid confusion, NNLM is explicitly **not**:
-
-* ❌ A chatbot wrapper around an LLM
-* ❌ A RAG system with a vector database
-* ❌ A fine-tuned LLM that memorizes training data
-* ❌ A prompt engineering framework
-* ❌ A search engine with generative summaries
-* ❌ A system that trades accuracy for fluency
-
-NNLM does **not** optimize for "most helpful response."
-It optimizes for **grounded, traceable, deterministic answers**.
+* Not a wrapper around a hosted chat model.
+* Not a "retrieve top-k and paste into a prompt" pipeline. Retrieved records are scored and filtered by a trained model first.
+* Not a model that has memorised its knowledge. Knowledge lives in NAM.
+* Not a general conversational assistant, creative writer or agent.
 
 ---
 
 ## How NNLM Relates to NAM
 
-NAM provides the **memory substrate** — deterministic, geometry-based retrieval of structured information.
+NAM provides the memory: storage, addressing, and a query service that fuses three retrieval paths (semantic addresses, vector similarity and a graph index) into one result set, tagging each row with the paths that produced it.
 
-NNLM provides the **language interface** — translating natural language queries into NAM address projections, selecting relevant records from results, and generating grounded responses.
+NNLM provides the language interface: it turns a question into a retrieval plan, calls NAM, selects evidence from what NAM returns, and writes a cited answer. It also stores each conversation turn back in NAM, so a session's history is itself retrievable memory.
 
-The relationship is structural:
-
-* NAM handles **what to retrieve** (via address navigation)
-* NNLM handles **what to say** (via grounded generation)
-* Neither component works alone — they are co-dependent by design
-
-NNLM does not replace NAM. It does not duplicate NAM's retrieval. It consumes NAM's output and produces language.
+NNLM cannot run without NAM.
 
 ---
 
 ## How to Read This Documentation
 
-This documentation is organized for different audiences:
-
-* **Non-technical / GTM / Advisors**
-  Start with:
-
-  * `OVERVIEW/`
-  * `PHILOSOPHY/`
-  * `CAPABILITIES/`
-
-* **Technical but non-implementers**
-  Focus on:
-
-  * `ARCHITECTURE/`
-  * `ARCHITECTURE/PIPELINE_MODEL.md`
-  * `ARCHITECTURE/GROUNDING_MODEL.md`
-  * `ARCHITECTURE/MULTI_STAGE_DESIGN.md`
-
-* **AI/ML researchers and engineers**
-  Focus on:
-
-  * `ARCHITECTURE/RECORD_SELECTION.md`
-  * `ARCHITECTURE/GENERATION_MODEL.md`
-  * `PHILOSOPHY/DESIGN_PRINCIPLES.md`
-
-* **Potential collaborators**
-  Review:
-
-  * `GOVERNANCE/`
-  * `ROADMAP/`
-
-This repo is designed to be readable **without access to the private codebase**.
+* **Non-technical readers:** `OVERVIEW/`, `PHILOSOPHY/`, `CAPABILITIES/`
+* **Technical readers:** `ARCHITECTURE/PIPELINE_MODEL.md`, then `ARCHITECTURE/MULTI_STAGE_DESIGN.md` and `ARCHITECTURE/GROUNDING_MODEL.md`
+* **ML engineers:** `ARCHITECTURE/RECORD_SELECTION.md`, `ARCHITECTURE/GENERATION_MODEL.md`, `ARCHITECTURE/SESSION_AND_CONTEXT.md`
+* **Collaborators:** `GOVERNANCE/`, `ROADMAP/`
 
 ---
 
-## Design Philosophy (High Level)
+## Design Principles (Short Form)
 
-NNLM is built around a small set of non-negotiable principles:
+* Grounding over fluency
+* Citation over assertion
+* Declining over guessing
+* Structure over prompting
+* Inspectable stages over a single opaque model
+* Measurement over assumption
 
-* **Grounding over fluency**
-* **Citation over assertion**
-* **Rejection over hallucination**
-* **Structure over prompting**
-* **Determinism over creativity**
-* **Measurement over assumption**
-
-These principles are expanded in `PHILOSOPHY/DESIGN_PRINCIPLES.md`.
+Expanded in `PHILOSOPHY/DESIGN_PRINCIPLES.md`.
 
 ---
 
-## Current State of the Project
+## Current State
 
-NNLM is in **active development** with a working end-to-end pipeline deployed against a live NAM cluster.
+NNLM runs end to end against a live NAM cluster on Kubernetes:
 
-* The encoder pipeline — multi-agent architecture with supervisor, entity resolution, retrieval, and quality assessment — is implemented and operational
-* Record selection uses a trained model that scores records as signal vs noise using NAM's native metadata
-* Generation produces citation-grounded responses constrained to selected records
-* Multiple fallback paths ensure the system always responds, with the primary path using trained models and fallbacks using external LLMs
-* Per-stage latency is tracked and visible in the UI for every query
-* The system supports multi-turn conversation with session-based pronoun resolution
+* a web UI that shows each stage as it completes (plan, retrieve, select, generate), with per-record selection scores, citations and provenance badges
+* an encoder service that plans retrieval with trained planner models, resolves follow-up pronouns from the session's stored turns, and queries NAM
+* NAM's own encoder, run read-only alongside NNLM, which extracts entities and semantic signals with NAM's rule-based parser and encoder heads
+* a decoder service that runs record selection and grounded generation, on CPU by default and on a GPU after an explicit prewarm
+* session turns stored in NAM and reloaded by session id
+* a one-shot `/ask` endpoint for programmatic callers
 
-This is **not** a finished product, and this repo is intentionally transparent about current limitations.
-
-> See: [Current State](ROADMAP/CURRENT_STATE.md) | [Current Limitations](CAPABILITIES/CURRENT_LIMITATIONS.md)
+Answer quality depends first on retrieval: when NAM does not return a record that contains the answer, NNLM declines rather than guess. See [Current State](ROADMAP/CURRENT_STATE.md) and [Current Limitations](CAPABILITIES/CURRENT_LIMITATIONS.md).
 
 ---
 
-## Licensing & Access
+## Licensing
 
-NNLM follows the same licensing model as NAM: **source-available**, not open source.
-
-See `GOVERNANCE/LICENSING_MODEL.md` for specifics.
-
----
-
-## Why This Repo Exists
-
-This repository exists to:
-
-* Establish a shared mental model for NNLM
-* Explain how a language model can be built on deterministic memory
-* Document the architectural decisions that make grounded generation possible
-* Prevent mischaracterization as "just another RAG chatbot"
-* Serve as the authoritative public reference
-
-If you are evaluating, advising, or helping bring NNLM to market, **this repo is the source of truth**.
+NNLM is **source-available**, not open source. See `GOVERNANCE/LICENSING_MODEL.md`.
 
 ---
 
 ## Next Steps
 
-If you're new:
-
-1. Read `OVERVIEW/WHAT_IS_NNLM.md`
-2. Read `PHILOSOPHY/DESIGN_PRINCIPLES.md`
-3. Skim `ARCHITECTURE/MULTI_STAGE_DESIGN.md`
-
-If you're considering engagement, reach out through the appropriate private channel.
-
----
-
-**NNLM is about building language models that can prove what they know.**
+1. `OVERVIEW/WHAT_IS_NNLM.md`
+2. `ARCHITECTURE/PIPELINE_MODEL.md`
+3. `CAPABILITIES/CURRENT_LIMITATIONS.md`
